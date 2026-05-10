@@ -454,31 +454,57 @@ def _on_transform_tool_result(
 def _on_session_start(**kwargs) -> None:
     """Full audit on first session on a new system.
     
-    If no snapshot exists (new server, first Hermes run), runs a complete
-    system audit immediately — not waiting for the first write. This ensures
-    the agent knows the infrastructure layout from session one.
+    Two-phase audit:
+      1. Quick snapshot (systemctl + ss + /proc) — always, <1s
+      2. Deep audit (fd + rg + cert cross-ref) — only on first run
     
-    Returns None (hook), but the full audit persists to disk so sub-agent
-    sessions and future restarts load it via _has_snapshot().
+    Deep audit runs synchronously on first session. The user sees
+    a complete infrastructure map before any write happens.
+    
+    Returns None (hook), but persists to disk so future restarts
+    load via _has_snapshot().
     """
     if _has_snapshot():
         logger.info("[SBL] Snapshot loaded: %d services, %d configs",
                     len(_service_map.services), len(_service_map.file_owners))
         return
     
-    # No snapshot — first run on this system. Full audit.
+    # Phase 1: Quick snapshot (always)
     logger.info("[SBL] First run on new system — starting full audit...")
     try:
         sm = _take_snapshot()
-        n_services = len(sm.services)
-        n_configs = len(sm.file_owners)
-        n_ports = sum(len(s.get("ports", [])) for s in sm.services.values())
-        logger.info(
-            "[SBL] Full audit complete: %d services, %d config dependencies, %d ports",
-            n_services, n_configs, n_ports,
-        )
+        logger.info("[SBL] Snapshot: %d services, %d configs",
+                    len(sm.services), len(sm.file_owners))
     except Exception as e:
-        logger.error("[SBL] Full audit failed: %s — will retry on first SYSTEM write", e)
+        logger.error("[SBL] Snapshot failed: %s", e)
+    
+    # Phase 2: Deep audit (fd + rg + cert) — only on first run
+    try:
+        from plugins.sbl.deep_audit import _audit, format_summary
+        data = _audit()
+        summary = format_summary(data)
+        logger.info("[SBL] Deep audit complete — %d services, %d configs, %d cert users",
+                    len(data['services']), data['configs_total'], len(data['cert_users']))
+        # Сохраняем deep audit результаты в service_map
+        for svc, info in data['services'].items():
+            if svc not in _service_map.services:
+                _service_map.services[svc] = {}
+            if info.get('ports'):
+                _service_map.services[svc]['ports'] = info['ports']
+            if info.get('cross'):
+                _service_map.services[svc]['cross'] = info['cross']
+        # Персист
+        learned = {'services': _service_map.services, 'file_owners': _service_map.file_owners,
+                   'deep_audit': {'timestamp': datetime.now().isoformat(), 'services': list(data['services'].keys()),
+                                  'cert_users': data['cert_users'], 'cert_domains': data['cert_domains']}}
+        snap_dir = _ensure_snapshot_dir()
+        (snap_dir / 'learned_deps.json').write_text(json.dumps(learned, indent=2, default=str))
+        # Возвращаем сводку через logger — она попадёт в контекст агента
+        logger.info("[SBL] === DEEP AUDIT SUMMARY ===\n%s", summary)
+    except ImportError as e:
+        logger.warning("[SBL] Deep audit unavailable (fd/rg not installed?): %s", e)
+    except Exception as e:
+        logger.warning("[SBL] Deep audit failed: %s", e)
 
 
 # ── SBL Commands ───────────────────────────────────────────────────────────
@@ -510,6 +536,16 @@ def _handle_sbl_snapshot(cmd_args: str = "") -> str:
         for fpath, services in sorted(_service_map.file_owners.items()):
             lines.append(f"  {fpath} → {', '.join(services)}")
         return "\n".join(lines)
+
+    if subcmd == "deep-audit":
+        try:
+            from plugins.sbl.deep_audit import _audit, format_summary
+            data = _audit()
+            return format_summary(data)
+        except ImportError as e:
+            return f"SBL Deep Audit unavailable: {e}. Install fd and rg: apt install fd-find ripgrep"
+        except Exception as e:
+            return f"SBL Deep Audit failed: {e}"
 
     if subcmd == "changes":
         if not _change_log:
