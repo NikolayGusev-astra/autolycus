@@ -61,6 +61,7 @@ _RUNTIME_SERVICES = {"certbot", "cron", "systemd", "user"}
 class ServiceMap:
     services: dict = field(default_factory=dict)
     file_owners: dict = field(default_factory=dict)
+    port_owners: dict = field(default_factory=dict)
 
 
 # Global state
@@ -221,6 +222,10 @@ def _take_snapshot() -> ServiceMap:
                 pid = pm.group(1)
         if port and proc_name:
             port_processes.append((port, proc_name, pid))
+
+    # Populate port_owners from collected ports
+    for port, proc_name, _ in port_processes:
+        sm.port_owners.setdefault(port, set()).add(proc_name)
 
     # Source 3: /proc — open files per PID
     pid_to_svc = {pid: pn for _, pn, pid in port_processes if pid}

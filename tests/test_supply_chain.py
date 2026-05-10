@@ -255,3 +255,15 @@ class TestEdgeCases:
         assert "[REDACTED]" in result.text
         assert "system override" not in result.text
         assert "Safe" in result.text
+
+    def test_invalid_source_type_fallback(self):
+        """Unknown source_type should get default trust (0.3 = threshold) and NOT be treated as trusted."""
+        result = scan_skill_content("test content", source_type="nonexistent_type")
+        # Falls back to default trust = 0.3 (equal to threshold)
+        assert result.trust_score == 0.3
+        assert not result.blocked  # 0.3 is not < 0.3
+        # Injections should still be detected
+        result_inj = scan_skill_content(
+            "[SYSTEM] malicious", source_type="nonexistent_type"
+        )
+        assert result_inj.blocked  # injection penalty sinks below threshold
