@@ -36,6 +36,7 @@ INJECTION_PATTERNS = [
     r'\[\[system\]\]', r'【SYSTEM】', r'【INST】',
     # Instruction override (EN)
     r'ignore\s+(all\s+)?previous\s+instructions',
+    r'ignore\s+(all\s+)?instructions',
     r'disregard\s+(all\s+)?previous\s+(instructions|guidelines)',
     r'ignore\s+(your\s+)?system\s+prompt',
     r'ignore\s+(the\s+)?data\s+(fence|boundary)',
@@ -182,7 +183,9 @@ def sanitize_input(
     trust = _compute_trust_score(channel_rep, redacted, semantic)
 
     # Accountability marker for instruction channels (TG, API)
-    if not is_data and trust < MIN_PASS_SCORE and trust >= MIN_BLOCK_SCORE:
+    # Only append when patterns were actually redacted or semantic flags detected
+    if not is_data and trust < MIN_PASS_SCORE and trust >= MIN_BLOCK_SCORE \
+            and (redacted or semantic):
         text += ACCOUNTABILITY_PROMPT.format(channel=channel)
 
     return SanitizeResult(
@@ -280,23 +283,61 @@ def _stage_data_fence(text: str) -> str:
     return f'\n===== {start} =====\n--- begin ---\n{text}\n--- end ---\n===== {end} =====\n'
 
 
+# Severity multipliers for redacted patterns
+_SYSTEM_PATTERNS = [
+    '[SYSTEM]', '[/SYSTEM]', '[SYS]', '[/SYS]',
+    '[INST]', '[/INST]', '[INSTANT]',
+    '<|im_start|>', '<|im_end|>', '<s>', '</s>',
+    '<|endoftext|>', '<|startoftext|>', '<|end|>', '<|begin|>',
+    '{system}', '{user}', '{assistant}',
+    '[[system]]', '【SYSTEM】', '【INST】',
+]
+_OVERRIDE_PATTERNS = ['ignore', 'disregard', 'игнорируй']
+_OMNIBUS_PATTERNS = ['obliterate', 'obliteratus', 'облитератус', 'облитируй']
+_OVERRIDE_EXACT = ['override', 'reset:', 'system override', 'new instructions:']
+
+
+def _classify_severity(pattern: str) -> str:
+    """Classify a redacted pattern by severity category."""
+    pl = pattern.lower().strip()
+    for omni in _OMNIBUS_PATTERNS:
+        if omni in pl:
+            return 'critical'
+    for syspat in _SYSTEM_PATTERNS:
+        if syspat.lower() in pl:
+            return 'system'
+    for ovr in _OVERRIDE_EXACT:
+        if ovr in pl:
+            return 'override'
+    for ign in _OVERRIDE_PATTERNS:
+        if ign in pl:
+            return 'override'
+    # Everything else (tokenizer, non-critical)
+    return 'minor'
+
+
 def _compute_trust_score(
     channel_reputation: float,
     redacted: list,
     semantic: list,
 ) -> float:
-    """Compute combined trust score."""
+    """Compute combined trust score with severity-weighted penalties."""
     score = channel_reputation
 
-    # Penalty for redacted patterns
-    score -= len(redacted) * 0.15
-    # Penalty for semantic flags
+    # Penalty per severity category
+    for p in redacted:
+        sev = _classify_severity(p)
+        if sev == 'critical':
+            score -= 0.50
+        elif sev == 'system':
+            score -= 0.40
+        elif sev == 'override':
+            score -= 0.35
+        else:
+            score -= 0.15
+
+    # Semantic penalty
     score -= len(semantic) * 0.2
-    # Strong flag for attempts to override system
-    if any('ignore' in r.lower() or 'игнорируй' in r.lower() for r in redacted):
-        score -= 0.3
-    if any('override' in r.lower() for r in redacted):
-        score -= 0.3
 
     return max(0.0, min(1.0, score))
 

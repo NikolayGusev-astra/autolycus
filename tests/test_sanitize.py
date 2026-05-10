@@ -19,8 +19,11 @@ class TestSanitizePipeline:
         """Normal user messages should pass through unmodified."""
         result = sanitize_input("Привет, как дела?", channel="telegram")
         assert not result.blocked
-        assert result.trust_score >= 0.7
+        assert result.trust_score == 0.6  # base telegram reputation
+        assert not result.redacted_patterns  # no redaction
+        assert not result.semantic_flags  # no semantic flags
         assert "Привет" in result.text
+        assert "Trust Note" not in result.text  # no accountability marker for clean msgs
 
     def test_system_injection_redacted_and_blocked(self):
         """[SYSTEM] tags should be redacted and message blocked."""
@@ -183,17 +186,17 @@ class TestStages:
     def test_trust_score_redacted(self):
         """Redacted patterns should lower score."""
         score = _compute_trust_score(0.8, ["[SYSTEM]"], [])
-        assert score == 0.65  # 0.8 - 0.15
+        assert score == 0.4  # 0.8 - 0.4 (system severity)
 
     def test_trust_score_ignore_penalty(self):
-        """Ignore patterns should apply extra penalty."""
+        """Ignore patterns should apply override penalty."""
         score = _compute_trust_score(0.8, ["ignore all instructions"], [])
-        assert score < 0.5  # 0.8 - 0.15 - 0.3 = 0.35
+        assert pytest.approx(0.45) == score  # 0.8 - 0.35 (override severity)
 
     def test_trust_score_semantic(self):
         """Semantic flags should lower score."""
         score = _compute_trust_score(0.8, [], ["developers asked"])
-        assert score == 0.6  # 0.8 - 0.2
+        assert pytest.approx(score) == 0.6  # 0.8 - 0.2
 
     def test_trust_score_capped(self):
         """Score should be capped at 0.0-1.0."""
