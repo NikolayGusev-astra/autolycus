@@ -274,14 +274,47 @@ def _audit() -> dict[str, Any]:
                 if port not in services[svc]["ports"]:
                     services[svc]["ports"].append(port)
 
-    # Cross-service через сертификаты
-    if len(cert_users) >= 2:
+    # Cross-service через общие пути (generic — не только сертификаты)
+    # Собираем все refs от всех сервисов
+    all_refs: dict[str, list[str]] = {}  # path → [service1, service2, ...]
+    for svc, info in services.items():
+        for ref in info.get("refs", []):
+            # Нормализуем: разрешаем symlinks, убираем хвостовой слеш
+            norm = str(Path(ref).resolve()) if Path(ref).exists() else ref.rstrip("/")
+            # Берём родительскую директорию (чтобы не плодить уникальные пути)
+            parent = str(Path(norm).parent) + "/"
+            all_refs.setdefault(parent, [])
+            if svc not in all_refs[parent]:
+                all_refs[parent].append(svc)
+    
+    # Добавляем cert-пути как дополнительный источник
+    for cert_domain in cert_domains:
+        cert_path = f"/etc/letsencrypt/live/{cert_domain}/"
+        all_refs.setdefault(cert_path, [])
         for svc in cert_users:
-            if svc in services:
-                services[svc]["cross"] = [s for s in cert_users if s != svc]
-
+            if svc in services and svc not in all_refs[cert_path]:
+                all_refs[cert_path].append(svc)
+    
+    # Теперь: если на один путь ссылается ≥2 сервиса — это cross-service связь
+    cross_links: dict[str, list[str]] = {}
+    for path, svcs in all_refs.items():
+        if len(svcs) >= 2:
+            for svc in svcs:
+                cross_links.setdefault(svc, [])
+                for other in svcs:
+                    if other != svc and other not in cross_links[svc]:
+                        cross_links[svc].append(other)
+    
+    # Применяем cross-связи к сервисам
+    for svc in services:
+        if svc in cross_links:
+            services[svc]["cross"] = cross_links[svc]
+        elif svc in cert_users and len(cert_users) >= 2:
+            # fallback: хотя бы cert-связи
+            services[svc]["cross"] = [s for s in cert_users if s != svc]
+    
     # Сводка
-    lines = [f"Full system audit complete — {len(services)} services"]
+    n_cross = sum(1 for s in services.values() if s.get("cross"))
 
     return {
         "services": services,
@@ -290,6 +323,7 @@ def _audit() -> dict[str, Any]:
         "cert_domains": cert_domains,
         "cert_users": cert_users,
         "ports_total": len(ports),
+        "n_cross": n_cross,
     }
 
 
@@ -321,8 +355,8 @@ def format_summary(data: dict[str, Any]) -> str:
         if info.get("upstreams"):
             lines.append(f"     upstreams: {', '.join(info['upstreams'][:5])}")
         if info.get("cross"):
-            lines.append(f"     ⛓️  cross: shared certs with {', '.join(info['cross'])}")
+            lines.append(f"     ⛓️  cross: {', '.join(info['cross'])}")
     lines.append("")
-    lines.append(f"  Cert-dependent services: {', '.join(data['cert_users']) or '(none)'}")
+    lines.append(f"  Cross-service links: {data.get('n_cross', 0)} services")
     lines.append("═══════════════════════════════════════════")
     return "\n".join(lines)
