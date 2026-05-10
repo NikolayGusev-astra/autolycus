@@ -568,7 +568,26 @@ def _handle_sbl_snapshot(cmd_args: str = "") -> str:
     if not _has_snapshot():
         return "SBL: No snapshot. First SYSTEM write will auto-snapshot."
     sm = _service_map
-    lines = [f"SBL Status: {len(sm.services)} services, {len(sm.file_owners)} configs"]
+    # Проверяем, был ли deep audit
+    snap_dir = _ensure_snapshot_dir()
+    learned_file = snap_dir / "learned_deps.json"
+    deep_audit_info = ""
+    if learned_file.exists():
+        try:
+            learned = json.loads(learned_file.read_text())
+            da = learned.get("deep_audit", {})
+            if da.get("services"):
+                deep_audit_info = (
+                    f"\n  Deep audit: {len(da['services'])} active services"
+                    f"\n  Cert users: {len(da.get('cert_users', []))}"
+                )
+                if da.get("cert_domains"):
+                    deep_audit_info += f"\n  SSL domains: {len(da['cert_domains'])}"
+        except Exception:
+            pass
+    lines = [f"SBL Status: {len(sm.services)} services (snapshot), {len(sm.file_owners)} configs"]
+    if deep_audit_info:
+        lines.append(deep_audit_info)
     lines.append(f"  Changes applied: {len(_change_log)}")
     if _change_log:
         lines.append(f"  Recent: {_change_log[-1]['path']}")
