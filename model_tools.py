@@ -1343,6 +1343,9 @@ def handle_function_call(
                     pass
         duration_ms = int((time.monotonic() - _dispatch_start) * 1000)
 
+        # ── Autolycus P5: return freed heap pages to OS ──
+        _maybe_trim_memory()
+
         _emit_post_tool_call_hook(
             function_name=function_name,
             function_args=function_args,
@@ -1438,6 +1441,18 @@ def _unload_heavy_tools() -> None:
 _HEAVY_TRANSIENTS = ["playwright", "selenium", "pydub", "sounddevice", "spotipy"]
 
 _unload_heavy_tools()
+
+
+# ── Autolycus P5: return freed heap pages to OS ───────────────────
+def _maybe_trim_memory() -> None:
+    """Call malloc_trim(0) on Linux to reduce RSS."""
+    try:
+        import ctypes
+        libc = ctypes.CDLL("libc.so.6")
+        libc.malloc_trim(0)
+    except Exception:
+        pass
+
 
 def _cold_import_and_run(module_path: str, func_name: str, args: dict) -> str:
     """JIT-import a module, call a function, unload it.
