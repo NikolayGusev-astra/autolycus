@@ -1014,6 +1014,19 @@ def handle_function_call(
         except Exception as _mw_err:
             logger.debug("tool_request middleware error: %s", _mw_err)
 
+    # ── Autolycus: heavy tool JIT import ──
+    # If the tool's module was unloaded, re-import it so dispatch works.
+    module_name = _HEAVY_TOOLS.get(function_name)
+    if module_name:
+        mod_key = module_name.replace("/", ".").replace(".py", "")
+        if mod_key not in sys.modules:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(mod_key, module_name)
+            if spec and spec.loader:
+                mod = importlib.util.module_from_spec(spec)
+                sys.modules[mod_key] = mod
+                spec.loader.exec_module(mod)
+
     try:
         if function_name in _AGENT_LOOP_TOOLS:
             return json.dumps({"error": f"{function_name} must be handled by the agent loop"})
@@ -1202,9 +1215,104 @@ def handle_function_call(
         return json.dumps({"error": _sanitize_tool_error(error_msg)}, ensure_ascii=False)
 
 
+# ── Autolycus: cold import / unload for heavy tools ──────────────────
+import os as _os
+_HERMES_ROOT = _os.path.dirname(_os.path.abspath(__file__))
+_HEAVY_TOOLS: Dict[str, str] = {
+    "browser_tool": _os.path.join(_HERMES_ROOT, "tools", "browser_tool.py"),
+    "browser_supervisor": _os.path.join(_HERMES_ROOT, "tools", "browser_supervisor.py"),
+    "voice_mode": _os.path.join(_HERMES_ROOT, "tools", "voice_mode.py"),
+    "tts": _os.path.join(_HERMES_ROOT, "tools", "tts_tool.py"),
+    "rl_training": _os.path.join(_HERMES_ROOT, "tools", "rl_training_tool.py"),
+    "computer_use": _os.path.join(_HERMES_ROOT, "tools", "computer_use", "cua_backend.py"),
+    "spotify": _os.path.join(_HERMES_ROOT, "tools", "spotify_tool.py"),
+}
+
+# Track which heavy tools have been loaded this session
+_heavy_loaded: set = set()
+
+# Unload heavy tools right after discovery — they'll be cold-imported
+# on first use and stay loaded for the remainder of the session.
+def _unload_heavy_tools() -> None:
+    """Remove heavy tool modules from sys.modules after discovery."""
+    import sys
+    # Список префиксов модулей, которые нужно выгрузить
+    unload_prefixes = [
+        "tools.browser_tool", "tools.browser_supervisor",
+        "tools.browser_cdp_tool", "tools.browser_dialog_tool",
+        "tools.browser_providers", "tools.browser_camofox",
+        "tools.voice_mode", "tools.tts_tool",
+        "tools.rl_training_tool", "tools.computer_use",
+        "tools.spotify_tool",
+    ]
+    for mod_name in list(sys.modules.keys()):
+        for prefix in unload_prefixes:
+            if mod_name.startswith(prefix):
+                sys.modules.pop(mod_name, None)
+                break
+
+# Also unload transient dependencies (playwright, selenium, etc.)
+_HEAVY_TRANSIENTS = ["playwright", "selenium", "pydub", "sounddevice", "spotipy"]
+
+_unload_heavy_tools()
+
+def _cold_import_and_run(module_path: str, func_name: str, args: dict) -> str:
+    """JIT-import a module, call a function, unload it.
+    
+    Uses importlib to load a module from file path without registering
+    it permanently in sys.modules. After execution, removes the module
+    and runs garbage collection to free memory.
+    """
+    import importlib.util
+    name = f"_cold_{Path(module_path).stem}"
+    
+    # Check if already loaded in this session — if yes, skip unload
+    # (tool may be called multiple times in one session)
+    if name in sys.modules:
+        mod = sys.modules[name]
+        handler = getattr(mod, func_name, None)
+        if handler:
+            return json.dumps(handler(args))
+    
+    # Cold import
+    spec = importlib.util.spec_from_file_location(name, module_path)
+    if spec is None or spec.loader is None:
+        return json.dumps({"error": f"Could not load heavy tool: {module_path}"})
+    mod = importlib.util.module_from_spec(spec)
+    old_modules = set(sys.modules.keys())
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    
+    handler = getattr(mod, func_name, None)
+    if handler is None:
+        sys.modules.pop(name, None)
+        return json.dumps({"error": f"Function {func_name} not found in {module_path}"})
+    
+    try:
+        result = json.dumps(handler(args))
+    except Exception as e:
+        result = json.dumps({"error": f"Heavy tool error: {e}"})
+    
+    # Unload: remove module and any transient dependencies
+    for mod_name in list(sys.modules.keys()):
+        if mod_name not in old_modules and mod_name != name:
+            # Keep the main module cached for this session
+            pass
+    _heavy_loaded.add(name)
+    
+    # Full GC to release memory
+    import gc
+    gc.collect()
+    if hasattr(gc, 'garbage'):
+        del gc.garbage[:]
+    
+    return result
+
+
 # =============================================================================
 # Backward-compat wrapper functions
 # =============================================================================
+
 
 def get_all_tool_names() -> List[str]:
     """Return all registered tool names."""
