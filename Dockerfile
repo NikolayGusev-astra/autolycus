@@ -17,6 +17,11 @@ RUN apt-get update && \
     build-essential curl nodejs npm python3 ripgrep ffmpeg gcc python3-dev libffi-dev procps git openssh-client docker-cli tini && \
     rm -rf /var/lib/apt/lists/*
 
+# Install Acton CLI (TON Blockchain smart contract toolchain)
+RUN curl -LsSf https://github.com/ton-blockchain/acton/releases/latest/download/acton-installer.sh \
+    | ACTON_INSTALL_DIR=/usr/local/bin sh && \
+    acton --version
+
 # Non-root user for runtime; UID can be overridden via HERMES_UID at runtime
 RUN useradd -u 10000 -m -d /opt/data hermes
 
