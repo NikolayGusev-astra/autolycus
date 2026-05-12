@@ -57,6 +57,34 @@ class PolicyConfig:
 
 
 # ---------------------------------------------------------------------------
+# Presets
+# ---------------------------------------------------------------------------
+
+PRESETS: Dict[str, Dict[str, Any]] = {
+    "strict": {
+        "mode": "enforce",
+        "deny_tools": ["dangerous_shell", "wipe_disk"],
+        "max_param_bytes": 2048,
+        "description": "Full enforcement: blocks dangerous tools and oversized params",
+    },
+    "balanced": {
+        "mode": "audit",
+        "deny_tools": ["dangerous_shell", "wipe_disk"],
+        "max_param_bytes": 4096,
+        "description": "Audit violations, block only explicitly dangerous tools",
+    },
+    "dev": {
+        "mode": "off",
+        "deny_tools": [],
+        "max_param_bytes": 8192,
+        "description": "No enforcement, high param limit — local development only",
+    },
+}
+
+_DEFAULT_PRESET = "balanced"
+
+
+# ---------------------------------------------------------------------------
 # Audit log
 # ---------------------------------------------------------------------------
 
@@ -131,26 +159,37 @@ def _load_config() -> PolicyConfig:
         if not isinstance(root, dict):
             return config
 
-        # Mode
-        raw_mode = root.get("policy", {}).get("mode", "audit")
+        # Pre-set: apply preset first, then individual overrides
+        policy_cfg = root.get("policy", {})
+        raw_preset = policy_cfg.get("preset", "")
+        if raw_preset in PRESETS:
+            preset = PRESETS[raw_preset]
+            config.mode = preset["mode"]
+            config.deny_tools = set(preset["deny_tools"])
+            config.max_param_bytes = preset["max_param_bytes"]
+
+        # Mode — individual override
+        raw_mode = policy_cfg.get("mode", config.mode)
         if raw_mode in ("off", "audit", "simulate", "enforce"):
             config.mode = raw_mode
 
-        # Allow / deny lists
-        allow = root.get("policy", {}).get("allow_tools", [])
-        deny = root.get("policy", {}).get("deny_tools", [])
-        if isinstance(allow, list):
-            config.allow_tools = set(allow)
-        if isinstance(deny, list):
-            config.deny_tools = set(deny)
+        # Allow / deny lists — only override if key is explicitly present
+        if "allow_tools" in policy_cfg:
+            allow = policy_cfg["allow_tools"]
+            if isinstance(allow, list):
+                config.allow_tools = set(allow)
+        if "deny_tools" in policy_cfg:
+            deny = policy_cfg["deny_tools"]
+            if isinstance(deny, list):
+                config.deny_tools = set(deny)
 
         # Max param bytes
-        mbytes = root.get("policy", {}).get("max_param_bytes")
+        mbytes = policy_cfg.get("max_param_bytes")
         if isinstance(mbytes, (int, float)) and mbytes > 0:
             config.max_param_bytes = int(mbytes)
 
         # Param blocklist
-        raw_rules = root.get("policy", {}).get("param_blocklist", [])
+        raw_rules = policy_cfg.get("param_blocklist", [])
         if isinstance(raw_rules, list):
             for r in raw_rules:
                 if isinstance(r, dict):
@@ -237,11 +276,12 @@ def pre_tool_call(
     task_id: str = "",
     session_id: str = "",
     **_: Any,
-) -> Optional[str]:
+) -> Optional[Dict[str, Any]]:
     """Pre-tool call hook: evaluate policy.
 
-    Returns ``None`` to allow the call, or a blocking error message string
-    when simulation/enforcement blocks it.
+    Returns ``None`` to allow the call, or a dict with
+    ``{"action": "block", "message": "..."}`` to block it
+    (in simulate/enforce modes).
     """
     if not isinstance(args, dict):
         return None
@@ -268,38 +308,44 @@ def pre_tool_call(
     if not decision.allowed:
         reason = decision.reason
         if decision.mode == "simulate":
-            return json.dumps(
-                {
-                    "error": (
-                        f"[ultra-governance · SIMULATE] Tool '{tool_name}' "
-                        f"would be blocked: {reason}"
-                    ),
-                    "_policy": {
-                        "mode": "simulate",
-                        "tool": tool_name,
-                        "reason": reason,
+            return {
+                "action": "block",
+                "message": json.dumps(
+                    {
+                        "error": (
+                            f"[ultra-governance · SIMULATE] Tool '{tool_name}' "
+                            f"would be blocked: {reason}"
+                        ),
+                        "_policy": {
+                            "mode": "simulate",
+                            "tool": tool_name,
+                            "reason": reason,
+                        },
                     },
-                },
-                ensure_ascii=False,
-            )
+                    ensure_ascii=False,
+                ),
+            }
         if decision.mode == "enforce":
             logger.warning(
                 "BLOCKED tool=%s reason=%s task=%s", tool_name, reason, task_id
             )
-            return json.dumps(
-                {
-                    "error": (
-                        f"[ultra-governance · BLOCKED] Tool '{tool_name}' "
-                        f"blocked by policy: {reason}"
-                    ),
-                    "_policy": {
-                        "mode": "enforce",
-                        "tool": tool_name,
-                        "reason": reason,
+            return {
+                "action": "block",
+                "message": json.dumps(
+                    {
+                        "error": (
+                            f"[ultra-governance · BLOCKED] Tool '{tool_name}' "
+                            f"blocked by policy: {reason}"
+                        ),
+                        "_policy": {
+                            "mode": "enforce",
+                            "tool": tool_name,
+                            "reason": reason,
+                        },
                     },
-                },
-                ensure_ascii=False,
-            )
+                    ensure_ascii=False,
+                ),
+            }
         # Audit mode — log only, allow
         logger.info(
             "AUDIT VIOLATION tool=%s reason=%s (allowed in audit mode)",

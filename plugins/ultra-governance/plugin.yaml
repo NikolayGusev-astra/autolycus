@@ -12,7 +12,8 @@ hooks:
   - on_session_start
 config:
   policy:
-    mode: "audit"
+    preset: balanced   # strict | balanced | dev (applied first, overridable)
+    mode: audit        # off | audit | simulate | enforce (overrides preset)
     allow_tools: []
     deny_tools:
       - "dangerous_shell"

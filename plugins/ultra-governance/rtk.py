@@ -122,7 +122,7 @@ def _head_tail_truncate(
     # Exceeds hard cap — aggressive truncation
     head = text[:head_chars]
     tail = text[-tail_chars:]
-    cut = len(text) - head_chars - tail_chars + tail_chars
+    cut = len(text) - head_chars - tail_chars
     return (
         f"{head}\n\n"
         f"... [WARNING: output capped at {max_total} chars, "
@@ -131,13 +131,18 @@ def _head_tail_truncate(
     )
 
 
-def apply(text: str) -> str:
+def apply(text: str, raw: bool = False) -> str:
     """Run the full RTK filter pipeline on *text*.
 
     1. Compact repeated lines
     2. Head/tail truncation
     3. Hard character cap
+
+    If *raw* is True, the pipeline is bypassed (per-call bypass).
     """
+    if raw:
+        return text
+
     config = _load_rtk_config()
     if not config["enabled"]:
         return text
@@ -176,6 +181,10 @@ def transform_tool_result(
 
     Only processes string results. Returns a filtered string or ``None``
     to leave the result unchanged.
+
+    Per-call bypass: if ``args`` contains ``rtk_raw=True``, filtering is
+    skipped for this call.  Useful for debugging or when the LLM needs
+    the complete unfiltered output (e.g. large JSON, logs).
     """
     if not isinstance(result, str) or not result:
         return None
@@ -184,7 +193,9 @@ def transform_tool_result(
     if len(result) < 500:
         return None
 
-    filtered = apply(result)
+    # Per-call bypass via args
+    raw_bypass = isinstance(args, dict) and args.get("rtk_raw", False)
+    filtered = apply(result, raw=raw_bypass)
 
     if filtered != result:
         saved = len(result) - len(filtered)
