@@ -1,0 +1,12 @@
+# Autolycus Agent — Config (Docker default)
+plugins:
+  enabled:
+    - ultra-governance
+    - sbl
+    - findings-to-wiki
+    - sanatize_mcp
+
+plugins_config:
+  ultra_governance:
+    policy:
+      preset: balanced
