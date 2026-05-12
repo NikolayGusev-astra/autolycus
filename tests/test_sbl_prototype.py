@@ -62,15 +62,17 @@ print(f"  ✅ /etc/stalwart/config.toml -> {'deps tracked' if stalwart_deps else
 
 # ── Test 4: Pre-write on SYSTEM path ────────────────────────────────────
 print()
-print("=== Test 4: Pre-write on SYSTEM path ===")
+print("=== Test 4: Pre-write on SYSTEM path (dict format) ===")
 result = _on_pre_tool_call(
     tool_name="write_file",
     args={"path": "/etc/nginx/nginx.conf", "content": "bad config"},
 )
 assert result is not None, "SYSTEM path should trigger SBL warning"
-assert "SBL" in result, f"Expected SBL marker in result: {result}"
-assert "nginx" in result, f"Expected nginx in result: {result}"
-print(f"  ✅ Result: {result[:80]}...")
+assert isinstance(result, dict), f"Expected dict, got {type(result)}"
+assert result["action"] == "block", f"Expected action=block, got {result}"
+assert "[SBL]" in result["message"], f"Expected [SBL] in message: {result['message']}"
+assert "nginx" in result["message"], f"Expected nginx in message: {result['message']}"
+print(f"  ✅ Result: action=block, message[:80]={result['message'][:80]}...")
 
 # ── Test 5: Pre-write on USER path ──────────────────────────────────────
 print()
@@ -90,8 +92,9 @@ result = _on_pre_tool_call(
     args={"path": "/weird/location/lib.so", "content": "bad"},
 )
 assert result is not None, "UNKNOWN path should trigger SBL warning"
-assert "blocked" in result.lower() or "unclassified" in result.lower(), \
-    f"Expected blocked/unclassified in result: {result}"
+assert isinstance(result, dict), f"Expected dict, got {type(result)}"
+assert result["action"] == "block", f"Expected action=block, got {result}"
+assert "blocked" in result["message"].lower(), f"Expected 'blocked' in message: {result['message']}"
 print(f"  ✅ Result: blocked")
 
 # ── Test 7: Terminal with systemctl ─────────────────────────────────────
@@ -102,8 +105,10 @@ result = _on_pre_tool_call(
     args={"command": "systemctl restart nginx"},
 )
 assert result is not None, "systemctl should trigger SBL warning"
-assert "nginx" in result, f"Expected nginx in result: {result}"
-print(f"  ✅ Result: {result[:80]}...")
+assert isinstance(result, dict), f"Expected dict, got {type(result)}"
+assert result["action"] == "block"
+assert "nginx" in result["message"], f"Expected nginx in result: {result['message']}"
+print(f"  ✅ Result: action=block, message[:80]={result['message'][:80]}...")
 
 # ── Test 8: Terminal with echo redirect ─────────────────────────────────
 print()
@@ -113,7 +118,8 @@ result = _on_pre_tool_call(
     args={"command": "echo '127.0.0.1 test' >> /etc/hosts"},
 )
 assert result is not None, "echo redirect to SYSTEM should trigger SBL"
-print(f"  ✅ Result: {result[:80]}...")
+assert isinstance(result, dict), f"Expected dict, got {type(result)}"
+print(f"  ✅ Result: action={result.get('action')}")
 
 # ── Test 9: Non-write tool ──────────────────────────────────────────────
 print()

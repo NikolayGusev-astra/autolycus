@@ -876,9 +876,15 @@ class TestRegistration:
 
         register(ctx)
 
+<<<<<<< HEAD
         ctx.register_hook.assert_any_call("transform_tool_result", ANY)
         ctx.register_hook.assert_any_call("on_session_start", ANY)
         # pre_tool_call is now registered by governance plugin, not SBL
+=======
+        ctx.register_hook.assert_any_call("pre_tool_call", ANY)
+        ctx.register_hook.assert_any_call("transform_tool_result", ANY)
+        ctx.register_hook.assert_any_call("on_session_start", ANY)
+>>>>>>> ad583e2dc (feat(ultra-governance): fix pre_tool_call format, add presets + raw-mode, docs)
         ctx.register_command.assert_called_once_with(
             "sbl",
             handler=ANY,

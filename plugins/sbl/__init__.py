@@ -437,11 +437,11 @@ def _on_pre_tool_call(
     tool_name: str = "",
     args: Optional[dict] = None,
     **kwargs,
-) -> Optional[str]:
+) -> Optional[Dict[str, Any]]:
     """Pre-write: classify path, snapshot, check dependencies.
 
     Returns None → pass through (USER, SYSTEM without deps, non-write tools).
-    Returns str → info for SYSTEM with deps, or block for UNKNOWN.
+    Returns dict with ``{"action": "block", "message": "..."}`` → block.
     """
     if tool_name not in WRITE_TOOLS or not isinstance(args, dict):
         return None
@@ -450,10 +450,17 @@ def _on_pre_tool_call(
     if classification == "USER":
         return None
     if classification == "UNKNOWN":
-        return (
-            f"[SBL] Unclassified path: '{path}' — blocked.\n"
-            f"  Use known paths under /etc/, /opt/, /usr/, or user paths under /home/, /tmp/"
-        )
+        if not path:
+            # No write target detected in command — e.g. `ls -la`, `cat file`
+            return None
+        return {
+            "action": "block",
+            "message": (
+                f"[SBL] Unclassified path: '{path}' — blocked.\n"
+                f"  Use known paths under /etc/, /opt/, /usr/, "
+                f"or user paths under /home/, /tmp/"
+            ),
+        }
 
     # SYSTEM: ensure snapshot
     if not _has_snapshot():
@@ -467,7 +474,10 @@ def _on_pre_tool_call(
     if deps:
         dep_str = _format_deps(deps)
         logger.info("[SBL] %s affects %d services:\n%s", path, len(deps), dep_str)
-        return f"[SBL] Writing to {path} affects running services:\n{dep_str}"
+        return {
+            "action": "block",
+            "message": f"[SBL] Writing to {path} affects running services:\n{dep_str}",
+        }
     return None
 
 
