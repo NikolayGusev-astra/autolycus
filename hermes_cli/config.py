@@ -1487,6 +1487,12 @@ DEFAULT_CONFIG = {
 
     # Config schema version - bump this when adding new required fields
     "_config_version": 23,
+
+    # Plugins enabled by default in Autolycus.
+    # Standalone bundled plugins need to appear here to auto-load.
+    "plugins": {
+        "enabled": ["ultra-governance"],
+    },
 }
 
 # =============================================================================
