@@ -1,0 +1,81 @@
+# Autolycus Agent — Docker Compose Stack
+# One-command deploy: docker compose up -d
+#
+# Services:
+#   landing   — Static site (autolycus-agent.ru)
+#   agent     — FastAPI gateway + API
+#   xray      — VLESS+REALITY VPN (optional)
+#   nginx     — Reverse proxy + SSL termination
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: autolycus-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/autolycus-agent.ru.conf:/etc/nginx/conf.d/autolycus-agent.ru.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./landing:/var/www/autolycus:ro
+      - certbot-www:/var/www/certbot:ro
+    depends_on:
+      - agent
+    networks:
+      - autolycus-net
+    restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot
+    container_name: autolycus-certbot
+    volumes:
+      - ./nginx/ssl:/etc/letsencrypt:rw
+      - certbot-www:/var/www/certbot:rw
+    entrypoint: /bin/sh
+    command: >
+      -c "certbot certonly --webroot -w /var/www/certbot
+      -d autolycus-agent.ru -d www.autolycus-agent.ru
+      --agree-tos --email admin@autolycus-agent.ru --non-interactive || true"
+    profiles:
+      - setup
+    networks:
+      - autolycus-net
+
+  agent:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    image: ghcr.io/nikolaygusev-astra/autolycus-agent:latest
+    container_name: autolycus-agent
+    env_file: .env
+    volumes:
+      - agent-data:/home/autolycus/.autolycus
+      - agent-repo:/home/autolycus/repo
+    ports:
+      - "8500:8500"
+    networks:
+      - autolycus-net
+    restart: unless-stopped
+
+  xray:
+    image: teddysun/xray:latest
+    container_name: autolycus-xray
+    env_file: .env
+    volumes:
+      - ./xray/config.json:/etc/xray/config.json:ro
+    ports:
+      - "443:443"
+    networks:
+      - autolycus-net
+    restart: unless-stopped
+    profiles:
+      - full
+
+volumes:
+  agent-data:
+  agent-repo:
+  certbot-www:
+
+networks:
+  autolycus-net:
+    driver: bridge

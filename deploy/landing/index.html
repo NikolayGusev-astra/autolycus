@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Autolycus — Enterprise AI Assistant</title>
+<style>
+  :root {
+    --bg: #0b1120;
+    --surface: #131c31;
+    --border: #1e293b;
+    --primary: #3b82f6;
+    --primary-dim: #6366f1;
+    --accent: #93c5fd;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --green: #22c55e;
+    --yellow: #eab308;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    min-height: 100vh;
+  }
+  .container { max-width: 1000px; margin: 0 auto; padding: 0 24px; }
+
+  /* Header */
+  header {
+    padding: 24px 0;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px;
+  }
+  header img { height: 40px; width: 40px; }
+  header span { font-weight: 700; font-size: 1.2em; letter-spacing: -0.02em; color: var(--accent); }
+  header nav { margin-left: auto; display: flex; gap: 24px; }
+  header nav a { color: var(--muted); text-decoration: none; font-size: 0.9em; }
+  header nav a:hover { color: var(--accent); }
+
+  /* Hero */
+  .hero {
+    text-align: center;
+    padding: 100px 0 80px;
+  }
+  .hero img { height: 96px; margin-bottom: 32px; }
+  .hero h1 {
+    font-size: 3.2em; font-weight: 800;
+    letter-spacing: -0.03em;
+    background: linear-gradient(135deg, var(--accent), var(--primary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 16px;
+  }
+  .hero p {
+    font-size: 1.2em; color: var(--muted);
+    max-width: 640px; margin: 0 auto 40px;
+  }
+
+  /* Install one-liner */
+  .install-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: 720px;
+    margin: 0 auto;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.9em;
+  }
+  .install-box .prompt { color: var(--green); }
+  .install-box code { flex: 1; }
+  .install-box .copy-btn {
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    padding: 6px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85em;
+    transition: background 0.2s;
+  }
+  .install-box .copy-btn:hover { background: var(--primary-dim); }
+
+  /* Features */
+  .section { padding: 80px 0; }
+  .section h2 {
+    font-size: 2em; font-weight: 700;
+    text-align: center; margin-bottom: 48px;
+    color: var(--accent);
+  }
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+  .feature {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+  }
+  .feature .icon { font-size: 2em; margin-bottom: 12px; }
+  .feature h3 { font-size: 1.1em; margin-bottom: 8px; }
+  .feature p { color: var(--muted); font-size: 0.9em; }
+
+  /* Benchmarks */
+  .bench-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 24px;
+  }
+  .bench-table th, .bench-table td {
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .bench-table th { color: var(--muted); font-weight: 600; font-size: 0.85em; text-transform: uppercase; }
+  .bench-table td { font-size: 0.95em; }
+  .bench-table .good { color: var(--green); }
+  .bench-table .warn { color: var(--yellow); }
+
+  /* Footer */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 40px 0;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.85em;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+
+  @media (max-width: 768px) {
+    .features { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2em; }
+    .install-box { flex-wrap: wrap; }
+    header nav { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <!-- Header -->
+  <header>
+    <img src="logo.svg" alt="Autolycus">
+    <span>autolycus</span>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#benchmarks">Performance</a>
+      <a href="https://github.com/NikolayGusev-astra/autolycus" target="_blank">GitHub</a>
+    </nav>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero">
+    <img src="logo.svg" alt="Autolycus">
+    <h1>Autolycus Agent</h1>
+    <p>Enterprise AI Assistant — форк Hermes Agent с улучшенной безопасностью,<br>производительностью и корпоративными фичами.</p>
+
+    <div class="install-box">
+      <span class="prompt">$</span>
+      <code>bash &lt;(curl -fsSL https://autolycus-agent.ru/install.sh)</code>
+      <button class="copy-btn" onclick="navigator.clipboard.writeText('bash <(curl -fsSL https://autolycus-agent.ru/install.sh)')">Copy</button>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="section" id="features">
+    <h2>Why Autolycus?</h2>
+    <div class="features">
+      <div class="feature">
+        <div class="icon">🛡</div>
+        <h3>Policy Engine</h3>
+        <p>Четыре режима безопасности: off → audit → simulate → enforce. Блокирует опасные команды до выполнения.</p>
+      </div>
+      <div class="feature">
+        <div class="icon">⚡</div>
+        <h3>2-5× Faster</h3>
+        <p>stdlib вместо subprocess для файловых операций. RTK-фильтр сокращает токены на 58% без потери данных.</p>
+      </div>
+      <div class="feature">
+        <div class="icon">🧠</div>
+        <h3>ContextWriter</h3>
+        <p>Файловый LLM-контекст: 0.5ms/turn write, экономия 200MB+ RAM на длительных сессиях.</p>
+      </div>
+      <div class="feature">
+        <div class="icon">🔍</div>
+        <h3>SBL Guard</h3>
+        <p>System Boundary Layer — FHS-классификация путей. Знает какие сервисы затронет изменение конфига.</p>
+      </div>
+      <div class="feature">
+        <div class="icon">📦</div>
+        <h3>Plugin System</h3>
+        <p>Все фичи — плагины. Zero-conflict при merge с upstream. ClickHouse, Honcho, Ultra Governance.</p>
+      </div>
+      <div class="feature">
+        <div class="icon">🏢</div>
+        <h3>Enterprise Ready</h3>
+        <p>White label, мульти-аренда, on-premise. ClickHouse memory provider для multi-tenant storage.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Benchmarks -->
+  <section class="section" id="benchmarks">
+    <h2>Benchmarks (vs Hermes Agent)</h2>
+    <table class="bench-table">
+      <tr>
+        <th>Operation</th>
+        <th>Vanilla (subprocess)</th>
+        <th>Autolycus (stdlib)</th>
+        <th>Speedup</th>
+      </tr>
+      <tr>
+        <td>head -n 20 (10MB file)</td>
+        <td>5.7 ms</td>
+        <td class="good">0.17 ms</td>
+        <td class="good">×33</td>
+      </tr>
+      <tr>
+        <td>cat (10MB file)</td>
+        <td>76.4 ms</td>
+        <td class="good">25.7 ms</td>
+        <td class="good">×3.0</td>
+      </tr>
+      <tr>
+        <td>ls -la</td>
+        <td>27.8 ms</td>
+        <td class="good">12.1 ms</td>
+        <td class="good">×2.3</td>
+      </tr>
+      <tr>
+        <td>wc -l</td>
+        <td class="good">19.2 ms</td>
+        <td>44.2 ms</td>
+        <td class="warn">×0.4 *</td>
+      </tr>
+      <tr>
+        <td>RTK compression</td>
+        <td>—</td>
+        <td class="good">58% savings</td>
+        <td class="good">0.14ms overhead</td>
+      </tr>
+      <tr>
+        <td>Policy evaluate</td>
+        <td>—</td>
+        <td class="good">17 μs/call</td>
+        <td class="good">negligible</td>
+      </tr>
+    </table>
+    <p style="color:var(--muted); font-size:0.85em; margin-top:12px;">* wc -l быстрее через subprocess (C-оптимизирован). Средневзвешенное ускорение на типичной сессии: 2-5×</p>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <p>Autolycus Agent — <a href="https://github.com/NikolayGusev-astra/autolycus">GitHub</a></p>
+    <p style="margin-top:8px;">Fork of <a href="https://hermes-agent.ru">Hermes Agent</a> by Nous Research</p>
+  </footer>
+</div>
+
+</body>
+</html>

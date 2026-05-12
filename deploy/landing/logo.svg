@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="primary" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#93c5fd"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="240" fill="url(#bg)" stroke="url(#primary)" stroke-width="2"/>
+
+  <!-- Wolf head geometric symbol -->
+  <!-- Left ear -->
+  <polygon points="160,140 128,60 192,120" fill="url(#primary)" opacity="0.9"/>
+  <!-- Right ear -->
+  <polygon points="352,140 384,60 320,120" fill="url(#primary)" opacity="0.9"/>
+
+  <!-- Left side of face -->
+  <path d="M160,140 Q128,200 140,280 Q150,340 192,360 L256,380" fill="url(#accent)" opacity="0.3"/>
+  <!-- Right side of face -->
+  <path d="M352,140 Q384,200 372,280 Q362,340 320,360 L256,380" fill="url(#accent)" opacity="0.3"/>
+
+  <!-- Main face shape -->
+  <path d="M160,140 Q200,100 256,100 Q312,100 352,140 L372,280 Q360,360 320,380 L256,400 L192,380 Q152,360 140,280 Z" fill="url(#primary)" opacity="0.8" filter="url(#glow)"/>
+
+  <!-- Eyes -->
+  <circle cx="210" cy="230" r="14" fill="#0f172a"/>
+  <circle cx="302" cy="230" r="14" fill="#0f172a"/>
+  <circle cx="210" cy="230" r="5" fill="#93c5fd" filter="url(#glow)"/>
+  <circle cx="302" cy="230" r="5" fill="#93c5fd" filter="url(#glow)"/>
+
+  <!-- Snout -->
+  <path d="M220,280 Q256,260 292,280 Q300,300 256,320 Q212,300 220,280 Z" fill="#1e293b"/>
+  <circle cx="256" cy="290" r="6" fill="#3b82f6" filter="url(#glow)"/>
+
+  <!-- AI circuit lines on face -->
+  <line x1="180" y1="180" x2="200" y2="200" stroke="#93c5fd" stroke-width="1.5" opacity="0.4"/>
+  <line x1="332" y1="180" x2="312" y2="200" stroke="#93c5fd" stroke-width="1.5" opacity="0.4"/>
+  <circle cx="180" cy="180" r="3" fill="#93c5fd" opacity="0.4"/>
+  <circle cx="332" cy="180" r="3" fill="#93c5fd" opacity="0.4"/>
+
+  <!-- Neural dots -->
+  <circle cx="256" cy="140" r="3" fill="#93c5fd" opacity="0.6"/>
+  <circle cx="200" cy="160" r="2" fill="#93c5fd" opacity="0.4"/>
+  <circle cx="312" cy="160" r="2" fill="#93c5fd" opacity="0.4"/>
+
+  <!-- Symmetry markers -->
+  <line x1="256" y1="100" x2="256" y2="400" stroke="#3b82f6" stroke-width="0.5" opacity="0.15"/>
+</svg>
