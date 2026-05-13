@@ -294,6 +294,7 @@ all = [
 ]
 
 [project.scripts]
+autolycus = "hermes_cli.main:main"
 hermes = "hermes_cli.main:main"
 hermes-agent = "run_agent:main"
 hermes-acp = "acp_adapter.entry:main"
