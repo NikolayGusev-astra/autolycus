@@ -152,7 +152,7 @@ def _load_patterns(plugin_cfg: dict) -> list[tuple[re.Pattern, str]]:
     return result
 
 
-def _detect_finding_type(text: str, patterns: list[tuple[re.Pattern, str]]) -> str | None:
+def _detect_finding_type(text: str, patterns: list[tuple[re.Pattern, str]], threshold: int = 2) -> str | None:
     """Detect structured finding in text using configured patterns."""
     matches: dict[str, int] = {}
     for pattern, ftype in patterns:
@@ -161,7 +161,7 @@ def _detect_finding_type(text: str, patterns: list[tuple[re.Pattern, str]]) -> s
     if not matches:
         return None
     total = sum(matches.values())
-    if total < 2:
+    if total < threshold:
         return None
     return max(matches, key=matches.get)
 
@@ -246,21 +246,85 @@ source: conversation-turn
 
 
 # ---------------------------------------------------------------------------
-# Fact extraction (same as before)
+# Fact extraction — uses LLM to decide what's worth saving
 # ---------------------------------------------------------------------------
+
+_FACT_EXTRACTION_PROMPT = """You are a memory extraction assistant. Review the conversation turn and extract ONLY significant, durable facts worth remembering.
+
+Rules:
+- Extract decisions, configurations, errors, fixes, preferences, commands, setup steps, and solutions
+- Do NOT extract: greetings, acknowledgments, casual chat, questions without answers, transient state
+- Output format: "FACT: <concise fact>" or "SKIP: <reason>"
+- Keep facts under 200 characters
+- One fact per turn maximum
+
+Conversation turn:
+User: {user_msg}
+
+Assistant: {asst_msg}"""
+
 
 def _extract_fact(user_msg: str, asst_msg: str) -> str | None:
     u = (user_msg or "").strip()
     a = (asst_msg or "").strip()
+
+    # Pre-filter: skip short/trivial turns before calling LLM
     if len(u) + len(a) < 60:
         return None
     u_lower = u.lower()
     if len(u) < 20 and any(u_lower.startswith(p) for p in TRIVIAL_PATTERNS):
         return None
-    u_line = u.split("\n")[0][:200]
-    a_line = a.split("\n")[0][:200]
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    return f"{timestamp}: Пользователь: {u_line} / Ответ: {a_line}"
+
+    # Skip if assistant response is just a tool output or status message
+    if a.startswith("⏳") or a.startswith("❌") or a.startswith("⚠️") or a.startswith("✅"):
+        if len(a) < 100:
+            return None
+
+    try:
+        from agent.auxiliary_client import call_llm
+        prompt = _FACT_EXTRACTION_PROMPT.format(
+            user_msg=u[:1000],
+            asst_msg=a[:1000]
+        )
+        response = call_llm(
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=150,
+            temperature=0.1,
+        )
+        result = response.choices[0].message.content.strip()
+
+        if result.startswith("SKIP:") or not result.startswith("FACT:"):
+            return None
+
+        fact = result[5:].strip()  # Remove "FACT:" prefix
+        if not fact or len(fact) < 10:
+            return None
+
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        return f"{timestamp}: {fact[:300]}"
+
+    except Exception as e:
+        logger.debug("LLM fact extraction failed, falling back to heuristic: %s", e)
+        # Fallback: heuristic extraction for errors/configs
+        import re
+        SIGNIFICANT = [
+            r'error|ошибка|failed|exception|traceback',
+            r'config|конфиг|настройк|setup|nginx|xray|docker',
+            r'решени|decision|выбр|recommend',
+            r'команд|command|run|запуст|restart',
+            r'установ|install|deploy|update',
+            r'проблем|issue|bug|fix|исправ',
+        ]
+        combined = (u + " " + a).lower()
+        if not any(re.search(p, combined) for p in SIGNIFICANT):
+            return None
+        # Extract the most relevant line
+        for line in (a.split("\n") + u.split("\n")):
+            line = line.strip()
+            if len(line) > 15 and any(re.search(p, line.lower()) for p in SIGNIFICANT):
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+                return f"{timestamp}: {line[:300]}"
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +338,7 @@ class FindingsToWikiProvider(MemoryProvider):
         self._mem_path: Path | None = None
         self._raw_dir: Path | None = None
         self._patterns: list[tuple[re.Pattern, str]] = []
+        self._trigger_threshold = 2
         self._memory_char_limit = 2200
         self._initialized = False
 
@@ -289,14 +354,15 @@ class FindingsToWikiProvider(MemoryProvider):
             cfg = _load_plugin_config()
             self._patterns = _load_patterns(cfg)
             self._memory_char_limit = int(cfg.get("memory_char_limit", 2200))
+            self._trigger_threshold = int(cfg.get("trigger_threshold", 2))
             _, self._raw_dir = _get_wiki_paths(cfg)
             mem_dir = get_hermes_home() / "memories"
             mem_dir.mkdir(parents=True, exist_ok=True)
             self._mem_path = mem_dir / "MEMORY.md"
             self._initialized = True
             logger.info(
-                "findings-to-wiki ready: %d patterns, wiki=%s, limit=%d",
-                len(self._patterns), self._raw_dir, self._memory_char_limit,
+                "findings-to-wiki ready: %d patterns, threshold=%d, wiki=%s, limit=%d",
+                len(self._patterns), self._trigger_threshold, self._raw_dir, self._memory_char_limit,
             )
         except Exception as e:
             logger.warning("findings-to-wiki init failed: %s", e)
@@ -319,7 +385,7 @@ class FindingsToWikiProvider(MemoryProvider):
 
             # 1. Detect structured findings
             if len(asst) > 100 and self._patterns:
-                ftype = _detect_finding_type(asst, self._patterns)
+                ftype = _detect_finding_type(asst, self._patterns, threshold=self._trigger_threshold)
                 if ftype:
                     saved = _save_to_raw(asst, ftype, self._raw_dir)
                     if saved:
