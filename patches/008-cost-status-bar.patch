@@ -1,0 +1,43 @@
+diff --git a/cli.py b/cli.py
+index bb261a05a..c69f076df 100644
+--- a/cli.py
++++ b/cli.py
+@@ -2883,6 +2883,26 @@ class HermesCLI:
+         snapshot["session_total_tokens"] = getattr(agent, "session_total_tokens", 0) or 0
+         snapshot["session_api_calls"] = getattr(agent, "session_api_calls", 0) or 0
+ 
++        # Calculate session cost
++        try:
++            cost_r = estimate_usage_cost(
++                model_name,
++                CanonicalUsage(
++                    input_tokens=snapshot["session_input_tokens"],
++                    output_tokens=snapshot["session_output_tokens"],
++                    cache_read_tokens=snapshot["session_cache_read_tokens"],
++                    cache_write_tokens=snapshot["session_cache_write_tokens"],
++                ),
++                provider=getattr(agent, "provider", None),
++                base_url=getattr(agent, "base_url", None),
++            )
++            if cost_r.amount_usd is not None:
++                snapshot["session_cost"] = float(cost_r.amount_usd)
++            else:
++                snapshot["session_cost"] = None
++        except Exception:
++            snapshot["session_cost"] = None
++
+         compressor = getattr(agent, "context_compressor", None)
+         if compressor:
+             context_tokens = getattr(compressor, "last_prompt_tokens", 0) or 0
+@@ -3088,7 +3108,11 @@ class HermesCLI:
+                 context_label = "ctx --"
+ 
+             compressions = snapshot.get("compressions", 0)
++            cost_val = snapshot.get("session_cost")
++            cost_label = f"${cost_val:.4f}" if cost_val is not None else None
+             parts = [f"⚕ {snapshot['model_short']}", context_label, percent_label]
++            if cost_label:
++                parts.insert(2, cost_label)
+             if compressions:
+                 parts.append(f"🗜️ {compressions}")
+             parts.append(duration_label)
