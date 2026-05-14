@@ -1,7 +1,7 @@
 name: Sync with upstream Hermes Agent
 on:
   schedule:
-    - cron: '0 6 * * *'  # Каждый день в 06:00 UTC
+    - cron: '0 6 * * *'  # Every day at 06:00 UTC
   workflow_dispatch:
     inputs:
       force:
@@ -14,6 +14,9 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     environment: autolycus-sync
+    permissions:
+      contents: write
+      issues: write
     steps:
       - name: Checkout autolycus
         uses: actions/checkout@v4
@@ -49,25 +52,45 @@ jobs:
           git merge --no-ff upstream/main --no-edit 2>&1 || echo "CONFLICT" >> .merge_status
           echo "Merge completed"
 
-      - name: Check for conflicts
+      - name: Check for merge conflicts
         if: steps.count.outputs.commits != '0'
         run: |
           if [ -f .merge_status ]; then
-            echo "::warning::Conflicts detected — manual resolution required"
-            echo "Conflicting files:"
+            echo "::warning::Merge conflicts detected"
             git diff --name-only --diff-filter=U
-            exit 0  # Don't fail the workflow, just warn
+          fi
+
+      - name: Apply autolycus patches
+        if: steps.count.outputs.commits != '0' && !cancelled() && !hashFiles('.merge_status')
+        id: patches
+        run: |
+          bash patches/apply.sh
+          echo "Patches applied"
+
+      - name: Create conflict issue
+        if: failure() && steps.patches.conclusion == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          EXISTS=$(gh issue list --label sync-conflict --json number --jq 'length')
+          if [ "$EXISTS" -eq 0 ]; then
+            gh issue create \
+              --title "Sync conflict: autolycus patches need manual resolution" \
+              --body "Auto-merge succeeded but patches failed. Check: bash patches/apply.sh" \
+              --label sync-conflict
+            echo "Conflict issue created"
+          else
+            echo "Issue already exists — skipping"
           fi
 
       - name: Push
-        if: steps.count.outputs.commits != '0' && !cancelled()
+        if: success() && steps.count.outputs.commits != '0'
+        run: git push origin main
+
+      - name: Push conflict branch
+        if: failure() && steps.count.outputs.commits != '0'
         run: |
-          if [ -f .merge_status ]; then
-            echo "Conflicts exist — push to a sync-branch instead of main"
-            BRANCH="sync/upstream-$(date +%Y%m%d)"
-            git checkout -b "$BRANCH"
-            git push origin "$BRANCH"
-            echo "Pushed to $BRANCH — create PR for review"
-          else
-            git push origin main
-          fi
+          BRANCH="sync/upstream-$(date +%Y%m%d)"
+          git checkout -b "$BRANCH"
+          git push origin "$BRANCH"
+          echo "Pushed to $BRANCH — create PR after resolving"

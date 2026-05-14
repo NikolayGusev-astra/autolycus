@@ -1,0 +1,15 @@
+diff --git a/hermes_cli/__init__.py b/hermes_cli/__init__.py
+index 0f247ddcc..9f3a03960 100644
+--- a/hermes_cli/__init__.py
++++ b/hermes_cli/__init__.py
+@@ -14,8 +14,8 @@ Provides subcommands for:
+ import os
+ import sys
+ 
+-__version__ = "0.13.0"
+-__release_date__ = "2026.5.7"
++__version__ = "0.1.0"
++__release_date__ = "2026.5.14"
+ 
+ 
+ def _ensure_utf8():
