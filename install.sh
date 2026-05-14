@@ -243,8 +243,55 @@ fi
 
 # Run quick setup with isolated home
 echo ""
-echo "→ Running initial setup..."
-"$VENV_DIR/bin/autolycus" setup --quick 2>&1 || echo "  Setup finished (you can rerun: autolycus setup)"
+echo "→ Creating default configuration..."
+mkdir -p "$AUTOLYCUS_HOME_DIR" 2>/dev/null
+
+# Create default config.yaml with basic settings
+if [ ! -f "$AUTOLYCUS_HOME_DIR/config.yaml" ]; then
+    cat > "$AUTOLYCUS_HOME_DIR/config.yaml" << 'CFGEOF'
+model:
+  provider: openrouter
+  base_url: https://openrouter.ai/api/v1
+  default: deepseek/deepseek-v4-flash
+  max_tokens: 4096
+  context_length: 1048576
+  api_mode: chat_completions
+  usage_tier: free
+agent:
+  max_turns: 60
+  gateway_timeout: 1800
+  yolo_mode: true
+toolsets:
+  - all
+display:
+  show_reasoning: true
+  streaming: true
+  skin: wizard
+memory:
+  provider: findings_to_wiki
+  memory_enabled: true
+  memory_char_limit: 2200
+  user_profile_enabled: true
+compression:
+  enabled: true
+  target_ratio: 0.2
+  threshold: 0.5
+CFGEOF
+    echo "✓ Default config created in $AUTOLYCUS_HOME_DIR"
+fi
+
+# Create .env if missing
+if [ ! -f "$AUTOLYCUS_HOME_DIR/.env" ]; then
+    cat > "$AUTOLYCUS_HOME_DIR/.env" << 'ENVEOF'
+OPENROUTER_API_KEY=***
+TELEGRAM_BOT_TOKEN=***
+TELEGRAM_ALLOWED_USERS=
+ENVEOF
+    echo "✓ .env template created"
+    echo ""
+    echo "  ⚠ Edit with your keys:"
+    echo "    nano $AUTOLYCUS_HOME_DIR/.env"
+fi
 
 echo ""
 echo "╔══════════════════════════════════════════╗"
