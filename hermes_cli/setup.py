@@ -1,5 +1,5 @@
 """
-Interactive setup wizard for Hermes Agent.
+Interactive setup wizard for Autolycus Agent.
 
 Modular wizard with independently-runnable sections:
   1. Model & Provider — choose your AI provider and model
@@ -183,13 +183,13 @@ def print_noninteractive_setup_guidance(reason: str | None = None) -> None:
         print_info(reason)
     print_info("The interactive wizard cannot be used here.")
     print()
-    print_info("Configure Hermes using environment variables or config commands:")
-    print_info("  hermes config set model.provider custom")
-    print_info("  hermes config set model.base_url http://localhost:8080/v1")
-    print_info("  hermes config set model.default your-model-name")
+    print_info("Configure Autolycus using environment variables or config commands:")
+    print_info("  autolycus config set model.provider custom")
+    print_info("  autolycus config set model.base_url http://localhost:8080/v1")
+    print_info("  autolycus config set model.default your-model-name")
     print()
     print_info("Or set OPENROUTER_API_KEY / OPENAI_API_KEY in your environment.")
-    print_info("Run 'hermes setup' in an interactive terminal to use the full wizard.")
+    print_info("Run 'autolycus setup' in an interactive terminal to use the full wizard.")
     print()
 
 
@@ -353,7 +353,7 @@ def _prompt_api_key(var: dict):
         save_env_value(var["name"], value)
         print_success("  ✓ Saved")
     else:
-        print_warning("  Skipped (configure later with 'hermes setup')")
+        print_warning("  Skipped (configure later with 'autolycus setup')")
 
 
 def _print_setup_summary(config: dict, hermes_home):
@@ -376,7 +376,7 @@ def _print_setup_summary(config: dict, hermes_home):
     if _vision_backends:
         tool_status.append(("Vision (image analysis)", True, None))
     else:
-        tool_status.append(("Vision (image analysis)", False, "run 'hermes setup' to configure"))
+        tool_status.append(("Vision (image analysis)", False, "run 'autolycus setup' to configure"))
 
     # Mixture of Agents — requires OpenRouter specifically (calls multiple models)
     if get_env_value("OPENROUTER_API_KEY"):
@@ -498,7 +498,7 @@ def _print_setup_summary(config: dict, hermes_home):
         if neutts_ok:
             tool_status.append(("Text-to-Speech (NeuTTS local)", True, None))
         else:
-            tool_status.append(("Text-to-Speech (NeuTTS — not installed)", False, "run 'hermes setup tts'"))
+            tool_status.append(("Text-to-Speech (NeuTTS — not installed)", False, "run 'autolycus setup tts'"))
     elif tts_provider == "kittentts":
         try:
             import importlib.util
@@ -508,7 +508,7 @@ def _print_setup_summary(config: dict, hermes_home):
         if kittentts_ok:
             tool_status.append(("Text-to-Speech (KittenTTS local)", True, None))
         else:
-            tool_status.append(("Text-to-Speech (KittenTTS — not installed)", False, "run 'hermes setup tts'"))
+            tool_status.append(("Text-to-Speech (KittenTTS — not installed)", False, "run 'autolycus setup tts'"))
     else:
         tool_status.append(("Text-to-Speech (Edge TTS)", True, None))
 
@@ -518,7 +518,7 @@ def _print_setup_summary(config: dict, hermes_home):
         if subscription_features.modal.direct_override:
             tool_status.append(("Modal Execution (direct Modal)", True, None))
         else:
-            tool_status.append(("Modal Execution", False, "run 'hermes setup terminal'"))
+            tool_status.append(("Modal Execution", False, "run 'autolycus setup terminal'"))
     elif managed_nous_tools_enabled() and subscription_features.nous_auth_present:
         tool_status.append(("Modal Execution (optional via Nous subscription)", True, None))
 
@@ -578,7 +578,7 @@ def _print_setup_summary(config: dict, hermes_home):
     disabled_tools = [(name, var) for name, avail, var in tool_status if not avail]
     if disabled_tools:
         print_warning(
-            "Some tools are disabled. Run 'hermes setup tools' to configure them,"
+            "Some tools are disabled. Run 'autolycus setup tools' to configure them,"
         )
         from hermes_constants import display_hermes_home as _dhh
         print_warning(f"or edit {_dhh()}/.env directly to add the missing API keys.")
@@ -618,17 +618,17 @@ def _print_setup_summary(config: dict, hermes_home):
     print()
     print(color("📝 To edit your configuration:", Colors.CYAN, Colors.BOLD))
     print()
-    print(f"   {color('hermes setup', Colors.GREEN)}          Re-run the full wizard")
-    print(f"   {color('hermes setup model', Colors.GREEN)}    Change model/provider")
-    print(f"   {color('hermes setup terminal', Colors.GREEN)} Change terminal backend")
-    print(f"   {color('hermes setup gateway', Colors.GREEN)}  Configure messaging")
-    print(f"   {color('hermes setup tools', Colors.GREEN)}    Configure tool providers")
+    print(f"   {color('autolycus setup', Colors.GREEN)}          Re-run the full wizard")
+    print(f"   {color('autolycus setup model', Colors.GREEN)}    Change model/provider")
+    print(f"   {color('autolycus setup terminal', Colors.GREEN)} Change terminal backend")
+    print(f"   {color('autolycus setup gateway', Colors.GREEN)}  Configure messaging")
+    print(f"   {color('autolycus setup tools', Colors.GREEN)}    Configure tool providers")
     print()
-    print(f"   {color('hermes config', Colors.GREEN)}         View current settings")
+    print(f"   {color('autolycus config', Colors.GREEN)}         View current settings")
     print(
-        f"   {color('hermes config edit', Colors.GREEN)}    Open config in your editor"
+        f"   {color('autolycus config edit', Colors.GREEN)}    Open config in your editor"
     )
-    print(f"   {color('hermes config set <key> <value>', Colors.GREEN)}")
+    print(f"   {color('autolycus config set <key> <value>', Colors.GREEN)}")
     print("                          Set a specific value")
     print()
     print("   Or edit the files directly:")
@@ -640,9 +640,9 @@ def _print_setup_summary(config: dict, hermes_home):
     print()
     print(color("🚀 Ready to go!", Colors.CYAN, Colors.BOLD))
     print()
-    print(f"   {color('hermes', Colors.GREEN)}              Start chatting")
-    print(f"   {color('hermes gateway', Colors.GREEN)}      Start messaging gateway")
-    print(f"   {color('hermes doctor', Colors.GREEN)}       Check for issues")
+    print(f"   {color('autolycus', Colors.GREEN)}              Start chatting")
+    print(f"   {color('autolycus gateway', Colors.GREEN)}      Start messaging gateway")
+    print(f"   {color('autolycus doctor', Colors.GREEN)}       Check for issues")
     print()
 
 
@@ -1004,7 +1004,7 @@ def setup_model_provider(config: dict, *, quick: bool = False):
             else:
                 print_info("Skipped — vision won't be available")
         else:
-            print_info("Skipped — add later with 'hermes setup' or configure AUXILIARY_VISION_* settings")
+            print_info("Skipped — add later with 'autolycus setup' or configure AUXILIARY_VISION_* settings")
 
 
     # Tool Gateway prompt is already shown by _model_flow_nous() above.
@@ -1218,7 +1218,7 @@ def _setup_tts_provider(config: dict):
                 from hermes_constants import display_hermes_home as _dhh
                 print_warning(
                     "No xAI API key provided for TTS. Configure XAI_API_KEY via "
-                    f"hermes setup model or {_dhh()}/.env to use xAI TTS. "
+                    f"autolycus setup model or {_dhh()}/.env to use xAI TTS. "
                     "Falling back to Edge TTS."
                 )
                 selected = "edge"
@@ -1299,7 +1299,7 @@ def _setup_tts_provider(config: dict):
 
 
 def setup_tts(config: dict):
-    """Standalone TTS setup (for 'hermes setup tts')."""
+    """Standalone TTS setup (for 'autolycus setup tts')."""
     _setup_tts_provider(config)
 
 
@@ -1581,7 +1581,7 @@ def setup_terminal_backend(config: dict):
     elif selected_backend == "vercel_sandbox":
         print_success("Terminal backend: Vercel Sandbox")
         print_info("Cloud microVM sandboxes with snapshot-backed filesystem persistence.")
-        print_info("Requires the optional SDK: pip install 'hermes-agent[vercel]'")
+        print_info("Requires the optional SDK: pip install 'autolycus-agent[vercel]'")
 
         try:
             __import__("vercel")
@@ -1605,7 +1605,7 @@ def setup_terminal_backend(config: dict):
             if result.returncode == 0:
                 print_success("vercel SDK installed")
             else:
-                print_warning("Install failed — run manually: pip install 'hermes-agent[vercel]'")
+                print_warning("Install failed — run manually: pip install 'autolycus-agent[vercel]'")
                 if result.stderr:
                     print_info(f"  Error: {result.stderr.strip().splitlines()[-1]}")
 
@@ -2128,7 +2128,7 @@ def _write_slack_manifest_and_instruct():
         print_warning(f"Couldn't write Slack manifest: {exc}")
         print_info(
             "   You can generate it manually later with: "
-            "hermes slack manifest --write"
+            "autolycus slack manifest --write"
         )
 
 
@@ -2403,7 +2403,7 @@ def setup_gateway(config: dict):
     selected = prompt_checklist("Select platforms to configure:", items, pre_selected)
 
     if not selected:
-        print_info("No platforms selected. Run 'hermes setup gateway' later to configure.")
+        print_info("No platforms selected. Run 'autolycus setup gateway' later to configure.")
         return
 
     for idx in selected:
@@ -3194,7 +3194,7 @@ def run_setup_wizard(args):
         print_info("Running the full wizard — each prompt shows your current value.")
         print_info("Press Enter to keep it, or type a new value to change it.")
         print_info("")
-        print_info("Tip: jump straight to a section with 'hermes setup model|terminal|")
+        print_info("Tip: jump straight to a section with 'autolycus setup model|terminal|")
         print_info("     gateway|tools|agent', or fill only missing items with --quick.")
         # Fall through to the "Full Setup — run all sections" block below.
         # --reconfigure is now the default on existing installs; the flag
@@ -3230,7 +3230,7 @@ def run_setup_wizard(args):
     print_info(f"Data folder:  {hermes_home}")
     print_info(f"Install dir:  {PROJECT_ROOT}")
     print()
-    print_info("You can edit these files directly or use 'hermes config edit'")
+    print_info("You can edit these files directly or use 'autolycus config edit'")
 
     if migration_ran:
         print()
@@ -3290,7 +3290,7 @@ def _run_first_time_quick_setup(config: dict, hermes_home, is_existing: bool):
         "Connect a messaging platform? (Telegram, Discord, etc.)",
         [
             "Set up messaging now (recommended)",
-            "Skip — set up later with 'hermes setup gateway'",
+            "Skip — set up later with 'autolycus setup gateway'",
         ],
         0,
     )
@@ -3341,7 +3341,7 @@ def _run_quick_setup(config: dict, hermes_home):
     if not has_anything_missing:
         print_success("Everything is configured! Nothing to do.")
         print()
-        print_info("Run 'hermes setup' and choose 'Full Setup' to reconfigure,")
+        print_info("Run 'autolycus setup' and choose 'Full Setup' to reconfigure,")
         print_info("or pick a specific section from the menu.")
         return
 
@@ -3404,7 +3404,7 @@ def _run_quick_setup(config: dict, hermes_home):
         print()
         print_header("Messaging Platforms")
         print_info("Connect Hermes to messaging apps to chat from anywhere.")
-        print_info("You can configure these later with 'hermes setup gateway'.")
+        print_info("You can configure these later with 'autolycus setup gateway'.")
 
         # Group by platform (preserving order)
         platform_order = []
