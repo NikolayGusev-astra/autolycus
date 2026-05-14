@@ -12,7 +12,7 @@ _profile_fallback_warned: bool = False
 
 
 def get_hermes_home() -> Path:
-    """Return the Hermes home directory (default: ~/.hermes).
+    """Return the Hermes/Autolycus home directory (default: ~/.hermes).
 
     Reads HERMES_HOME env var, falls back to ~/.hermes.
     This is the single source of truth — all other copies should import this.
@@ -30,6 +30,11 @@ def get_hermes_home() -> Path:
     val = os.environ.get("HERMES_HOME", "").strip()
     if val:
         return Path(val)
+
+    # AUTOLYCUS_HOME — isolated home for Autolycus Agent (fork)
+    auto_val = os.environ.get("AUTOLYCUS_HOME", "").strip()
+    if auto_val:
+        return Path(auto_val)
 
     # Guard: if a non-default profile is sticky-active, warn once that
     # the fallback to the default profile is almost certainly wrong.
