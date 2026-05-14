@@ -7526,6 +7526,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             self._handle_fast_command(cmd_original)
         elif canonical == "compress":
             self._manual_compress(cmd_original)
+        elif canonical == "token-log" or canonical == "tokens":
+            self._show_token_log(cmd_original)
         elif canonical == "usage":
             self._show_usage()
         elif canonical == "credits":
@@ -8278,6 +8280,84 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 print(f"  ❌ Compression failed: {e}")
 
 
+
+    def _show_token_log(self, cmd_original: str = "/token-log"):
+        """Show per-API-call token usage and cost for the current session."""
+        if not self.agent:
+            print("(._.) No active agent -- send a message first.")
+            return
+        agent = self.agent
+        calls = getattr(agent, "session_api_calls", 0)
+        if calls == 0:
+            print("(._.) No API calls made yet in this session.")
+            return
+        print()
+        print("  📋 Per-Call Token Log")
+        print(f"  Model: {agent.model}")
+        print(f"  Provider: {getattr(agent, 'provider', '?')}")
+        print(f"  {'─' * 65}")
+
+        total_cost = 0.0
+        call_num = 0
+
+        # Try session JSON log first (per-call records)
+        log_dir = getattr(agent, "logs_dir", None)
+        if log_dir:
+            log_file = log_dir / f"session_{agent.session_id}.json"
+            if log_file.exists():
+                import json
+                with open(log_file) as f:
+                    for line in f:
+                        try:
+                            entry = json.loads(line)
+                            if "usage" not in entry:
+                                continue
+                            call_num += 1
+                            u = entry["usage"]
+                            inp = u.get("input_tokens", 0) or 0
+                            out = u.get("output_tokens", 0) or 0
+                            cr = u.get("cache_read_tokens", 0) or 0
+                            cw = u.get("cache_write_tokens", 0) or 0
+                            total = inp + out + cr + cw
+                            from agent.usage_pricing import estimate_usage_cost, CanonicalUsage
+                            cost_r = estimate_usage_cost(
+                                agent.model,
+                                CanonicalUsage(input_tokens=inp, output_tokens=out,
+                                               cache_read_tokens=cr, cache_write_tokens=cw),
+                                provider=getattr(agent, "provider", None),
+                                base_url=getattr(agent, "base_url", None),
+                            )
+                            cost_s = f"${cost_r.amount_usd:.4f}" if cost_r.amount_usd is not None else "n/a"
+                            if cost_r.amount_usd:
+                                total_cost += float(cost_r.amount_usd)
+                            cache_s = f" cr={cr:,}" if cr else ""
+                            print(f"  #{call_num:>3} | in={inp:>9,} out={out:>9,} total={total:>9,}{cache_s}")
+                            print(f"       | cost={cost_s}")
+                        except (json.JSONDecodeError, Exception):
+                            continue
+                print(f"  {'─' * 65}")
+                print(f"  Total: {call_num} calls, ${total_cost:.4f}")
+                print()
+                return
+
+        # Fallback: read from session DB
+        from hermes_state import SessionDB
+        db = SessionDB()
+        try:
+            records = db.get_session_token_records(agent.session_id)
+            if records:
+                for rec in records:
+                    call_num += 1
+                    inp = rec.get("input_tokens", 0) or 0
+                    out = rec.get("completion_tokens", 0) or 0
+                    total = inp + out
+                    print(f"  #{call_num:>3} | in={inp:>9,} out={out:>9,} total={total:>9,}")
+                print(f"  {'─' * 65}")
+            else:
+                print(f"  No per-call data. Try: grep 'API call' ~/.hermes/logs/agent.log")
+        finally:
+            db.close()
+        print()
 
     def _show_usage(self):
         """Rate limits + session token usage (when a live agent exists) + Nous credits.
