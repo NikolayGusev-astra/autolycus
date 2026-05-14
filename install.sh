@@ -144,8 +144,8 @@ if [ ! -f .env ]; then
         cat > .env << ENVEOF
 # Autolycus Agent Configuration
 OPENROUTER_API_KEY=***
-TELEGRAM_BOT_TOKEN=***
-TELEGRAM_ALLOWED_USERS=your-user-id
+# TELEGRAM_BOT_TOKEN=***
+# TELEGRAM_ALLOWED_USERS=your-user-id
 DOMAIN=${DOMAIN:-localhost}
 ENVEOF
         echo "  Created .env template"
@@ -284,8 +284,8 @@ fi
 if [ ! -f "$AUTOLYCUS_HOME_DIR/.env" ]; then
     cat > "$AUTOLYCUS_HOME_DIR/.env" << 'ENVEOF'
 OPENROUTER_API_KEY=***
-TELEGRAM_BOT_TOKEN=***
-TELEGRAM_ALLOWED_USERS=
+# TELEGRAM_BOT_TOKEN=***
+# TELEGRAM_ALLOWED_USERS=
 ENVEOF
     echo "✓ .env template created"
     echo ""
