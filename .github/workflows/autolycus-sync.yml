@@ -29,6 +29,16 @@ jobs:
           git config user.name "Autolycus Sync Bot"
           git config user.email "bot@autolycus-agent.ru"
 
+      - name: Save adapted files before merge
+        run: |
+          # These files are adapted for Autolycus — save them before upstream overwrites
+          for f in README.md SECURITY.md AGENTS.md; do
+            if [ -f "$f" ]; then
+              cp "$f" "/tmp/autolycus-$f"
+              echo "✓ Saved $f"
+            fi
+          done
+
       - name: Fetch upstream
         run: |
           git remote add upstream https://github.com/NousResearch/hermes-agent.git
@@ -49,23 +59,55 @@ jobs:
         if: steps.count.outputs.commits != '0'
         id: merge
         run: |
+          # Merge upstream, prefer upstream version on conflicts for non-protected files
           git merge --no-ff upstream/main --no-edit 2>&1 || echo "CONFLICT" >> .merge_status
           echo "Merge completed"
 
-      - name: Check for merge conflicts
+      - name: Restore adapted files
+        if: steps.count.outputs.commits != '0'
+        run: |
+          # Restore Autolycus-adapted versions (discard upstream overwrites)
+          for f in README.md SECURITY.md AGENTS.md; do
+            if [ -f "/tmp/autolycus-$f" ]; then
+              cp "/tmp/autolycus-$f" "$f"
+              git add "$f"
+              echo "✓ Restored $f (autolycus adaptation preserved)"
+            fi
+          done
+
+      - name: Check for merge conflicts (besides protected files)
         if: steps.count.outputs.commits != '0'
         run: |
           if [ -f .merge_status ]; then
-            echo "::warning::Merge conflicts detected"
-            git diff --name-only --diff-filter=U
+            UNRESOLVED=$(git diff --name-only --diff-filter=U 2>/dev/null | grep -v -E '^(README\.md|SECURITY\.md|AGENTS\.md)$' || true)
+            if [ -n "$UNRESOLVED" ]; then
+              echo "::warning::Merge conflicts in non-protected files:"
+              echo "$UNRESOLVED"
+              echo "CONFLICT_REMAINS=true" >> $GITHUB_ENV
+            else
+              rm -f .merge_status
+              echo "All remaining conflicts are in protected files (already restored)"
+            fi
           fi
 
       - name: Apply autolycus patches
-        if: steps.count.outputs.commits != '0' && !cancelled() && !hashFiles('.merge_status')
+        if: steps.count.outputs.commits != '0' && !cancelled() && env.CONFLICT_REMAINS != 'true'
         id: patches
         run: |
           bash patches/apply.sh
           echo "Patches applied"
+
+      - name: Restore adapted files after patches
+        if: steps.count.outputs.commits != '0'
+        run: |
+          # Patches might have touched these files too — restore again
+          for f in README.md SECURITY.md AGENTS.md; do
+            if [ -f "/tmp/autolycus-$f" ]; then
+              cp "/tmp/autolycus-$f" "$f"
+              git add "$f"
+              echo "✓ Final restore of $f"
+            fi
+          done
 
       - name: Create conflict issue
         if: failure() && steps.patches.conclusion == 'failure'

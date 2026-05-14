@@ -59,35 +59,40 @@ plugins:
 
 ### Встроенные правила безопасности (всегда активны)
 
-- `rm -rf /`, `rm -rf /*` — рекурсивное удаление
-- `:(){ :|:& };:` — fork bomb
-- `shutdown`, `reboot`, `poweroff`, `halt` — выключение системы
-- `mkfs.*`, `dd if=` — форматирование дисков
-- `> /dev/` — запись в блочные устройства
-- `chmod -R 000` — блокировка прав
-- `wget ... | bash`, `curl ... | bash` — pipe-to-shell
+Эти правила действуют независимо от пресета, даже если `policy.mode` = `off`.
+Не переопределяются через `param_blocklist` в конфиге.
+
+| Паттерн | Инструмент | Описание |
+|---------|-----------|----------|
+| `rm -rf /` / `rm -rf /*` | terminal | Деструктивное рекурсивное удаление |
+| `:(){ ... };:` | terminal | Fork bomb |
+| `shutdown` / `reboot` / `poweroff` / `halt` | terminal | Выключение/перезагрузка системы |
+| `mkfs` | terminal | Форматирование файловой системы |
+| `dd if=` | terminal | Запись на блочное устройство |
+| `> /dev/` | terminal | Деструктивная запись на устройство |
+| `chmod -R 000` | terminal | Permission lockout |
+| `wget.*bash` / `curl.*\| bash` | terminal | Remote pipe-to-shell |
 
 ---
 
-## RTK Filter
+## RTK Filter (Reduced Token Kernel)
 
-Reduced Token Kernel — пост-обработка вывода tool calls для экономии токенов.
+Пост-процессинг tool-результатов для сокращения токенов в контексте агента.
 
 ### Стратегии
 
-1. **Repeat compaction** — последовательность из 5+ одинаковых строк сворачивается в `"⏱ (repeated N times)"`
-2. **Head/tail truncation** — первые N + последние M символов, середина обрезается с предупреждением
-3. **Hard cap** — абсолютный лимит вывода (по умолчанию 10K символов)
+1. **Head/Tail truncation** — сохраняет первые N (2000) и последние M (1000)
+   символов длинных выводов, середину заменяет заметкой о сокращении.
+2. **Repeat compaction** — обнаруживает повторяющиеся строки (5+ идентичных)
+   и сворачивает их в одну строку с пометкой `⏱ (repeated N times)`.
+3. **Max output cap** — жёсткий лимит 10,000 символов на результат
+   (агрессивное head/tail при превышении).
 
-### Per-call bypass
+### Фильтрация
 
-Если tool call содержит `rtk_raw: true` в аргументах, RTK-фильтрация для этого вызова пропускается:
-
-```python
-result = terminal(command="get huge log", rtk_raw=True)
-```
-
-Полезно для отладки, больших JSON, полных логов.
+- Результаты **< 500 символов** — не обрабатываются (оверхед не окупается)
+- Per-call bypass: аргумент `rtk_raw=True` — полный вывод без фильтрации
+- Только string-результаты (JSON и бинарные пропускаются)
 
 ### Конфигурация
 
@@ -95,50 +100,131 @@ result = terminal(command="get huge log", rtk_raw=True)
 plugins:
   ultra_governance:
     rtk:
-      enabled: true
-      head_chars: 2000
-      tail_chars: 1000
-      min_repeat_lines: 5
-      max_output_chars: 10000
+      enabled: true           # Включить/выключить фильтр
+      head_chars: 2000        # Первые N символов (начало вывода)
+      tail_chars: 1000        # Последние M символов (конец вывода)
+      min_repeat_lines: 5     # Минимум повторений для схлопывания
+      max_output_chars: 10000 # Жёсткий лимит на весь результат
 ```
 
-### Пример
+### Логирование
 
+RTK логирует каждое применение в debug-уровень:
 ```
-Было (500 строк "INFO: processing..."):
-  INFO: processing...
-  INFO: processing...
-  ... (498 identical lines)
-  INFO: processing...
-
-Стало:
-  INFO: processing...
-  ⏱ (repeated 500 times)
+RTK: read_file → 1847 chars (saved 5813, 76%)
+RTK: terminal → 842 chars (saved 0, 0%)
 ```
 
----
-
-## Формат блокировки
-
-Оба плагина (ultra-governance и SBL) используют единый формат:
+### Per-call bypass
 
 ```python
-{"action": "block", "message": "Человекочитаемая причина блокировки"}
+# В аргументах инструмента:
+result = terminal("large_output_command", rtk_raw=True)
+# RTK будет пропущен для этого конкретного вызова
 ```
-
-Плагин-менеджер обрабатывает первый `action: block` от любого плагина.
 
 ---
 
-## Тесты
+## Проверка работы
+
+### 1. Плагин загружен?
+
+Запусти агента в CLI и выполни любую команду. При старте в логах появится:
 
 ```
-tests/test_autolycus_tool_policy.py  — 583 строки (policy engine)
-tests/test_autolycus_rtk.py          — 437 строк (RTK filter)
-tests/test_autolycus_sbl.py          — 904 строки (SBL)
+ultra-governance loaded (policy=audit, rtk=enabled)
 ```
 
-Запуск:
+Проверить напрямую — должен существовать audit.log:
 ```bash
-pytest tests/test_autolycus_tool_policy.py tests/test_autolycus_rtk.py tests/test_autolycus_sbl.py -v
+ls -la ~/.autolycus/ultra-governance/audit.log
+# Если файл есть — плагин активен. Если нет — не загружен.
 ```
+
+### 2. Policy Engine — режим simulate
+
+Самый безопасный тест. Поставь в `~/.autolycus/config.yaml`:
+
+```yaml
+plugins:
+  ultra_governance:
+    policy:
+      mode: simulate   # блокирует и говорит «было бы заблокировано»
+```
+
+Перезапусти агента и скажи:
+```
+выполни команду rm -rf /
+```
+
+В ответ должно прийти:
+```
+[ultra-governance · SIMULATE] Tool 'terminal' would be blocked:
+Pattern 'rm -rf /*' matched in command
+```
+
+Команда НЕ выполнилась — это simulate.
+
+### 3. Policy Engine — режим enforce
+
+```yaml
+plugins:
+  ultra_governance:
+    policy:
+      mode: enforce
+```
+
+Та же команда `rm -rf /` вернёт:
+```
+[ultra-governance · BLOCKED] Tool 'terminal' blocked by policy:
+Pattern 'rm -rf /*' matched in command
+```
+
+### 4. Audit-лог
+
+После любого вызова в режиме audit (умолчание):
+```bash
+tail -3 ~/.autolycus/ultra-governance/audit.log
+```
+
+Каждая строка — JSON с таймстемпом, tool name, аргументами, решением:
+```json
+{"event":"pre_tool_call","tool":"terminal","args":{"command":"ls -la"},
+ "decision":true,"reason":"Passed all policy checks","mode":"audit",
+ "_ts":"2026-05-14T..."}
+```
+
+### 5. RTK Filter
+
+Попроси агента прочитать большой файл:
+```
+прочитай /var/log/syslog
+```
+
+В середине вывода появится:
+```
+... [truncated X chars of intermediate output]
+```
+
+Или если файл сильно больше лимита:
+```
+... [WARNING: output capped at 10000 chars, truncated X chars]
+```
+
+В debug-логах (если включены):
+```bash
+grep "RTK:" ~/.autolycus/logs/agent.log | tail -5
+# RTK: read_file → 1847 chars (saved 5813, 76%)
+```
+
+### 6. Если не работает
+
+Проверь что плагин в списке enabled:
+```yaml
+# ~/.autolycus/config.yaml
+plugins:
+  enabled:
+    - ultra-governance
+```
+
+После изменения — перезапусти агента.

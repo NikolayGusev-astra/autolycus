@@ -1,6 +1,6 @@
-# Hermes Agent - Development Guide
+# Autolycus Agent - Development Guide
 
-Instructions for AI coding assistants and developers working on the hermes-agent codebase.
+Instructions for AI coding assistants and developers working on the autolycus codebase.
 
 ## Development Environment
 

@@ -276,6 +276,11 @@ compression:
   enabled: true
   target_ratio: 0.2
   threshold: 0.5
+plugins:
+  enabled:
+    - ultra-governance
+    - sbl
+    - findings-to-wiki
 CFGEOF
     echo "✓ Default config created in $AUTOLYCUS_HOME_DIR"
 fi

@@ -33,6 +33,24 @@ Use any model — OpenRouter (200+ models), Nous Portal, OpenAI, or your own end
 curl -fsSL https://raw.githubusercontent.com/NikolayGusev-astra/autolycus/main/install.sh | bash
 ```
 
+---
+
+## Autolycus Features
+
+These features are unique to Autolycus and **not** available in upstream Hermes Agent:
+
+| Feature | Description |
+|---------|-------------|
+| **SBL (System Boundary Layer)** | FHS-based path classifier. Pre-write dependency checks — agent knows `/etc/nginx/` belongs to nginx before touching it. Auto-snapshot of running services. |
+| **Ultra Governance** | Policy Engine with 4 modes (off/audit/simulate/enforce). Deny-list, param pattern blocking, max param bytes. Built-in protection against `rm -rf /`, fork bombs, pipe-to-shell. |
+| **RTK Filter** | Reduced Token Kernel — head/tail truncation + repeat compaction. ~58% token savings on tool outputs. |
+| **Sanitize MCP** | Pre-filters dangerous MCP tools before they reach the agent. |
+| **findings_to_wiki + ContextWriter** | Persistent memory that survives context compression. Auto-saves key facts every turn. |
+| **White Label** | AUTOLYCUS_HOME isolation (`~/.autolycus/`), custom branding, entry point, patches system. |
+| **On-premise first** | curl\|bash install in 30 seconds. 1CPU/1GB VPS minimum. No Docker required. |
+
+[Full feature documentation →](docs/features.md)
+
 ### Windows (native, PowerShell) — Early Beta
 
 > **Heads up:** Native Windows support is **early beta**. It installs and runs, but hasn't been road-tested as broadly as our Linux/macOS/WSL2 paths. Please [file issues](https://github.com/NousResearch/hermes-agent/issues) when you hit rough edges. For the most battle-tested Windows setup today, run the Linux/macOS one-liner above inside **WSL2**.
