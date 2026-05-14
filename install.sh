@@ -217,19 +217,28 @@ else
 fi
 
 echo ""
-echo "→ Setting up shell alias..."
+echo "→ Setting up Autolycus home directory..."
 
+AUTOLYCUS_HOME_DIR="$HOME/.autolycus"
+mkdir -p "$AUTOLYCUS_HOME_DIR/profiles/default" 2>/dev/null
+
+# Set AUTOLYCUS_HOME in shell rc
 SHELL_RC="$HOME/.bashrc"
 if [ -f "$HOME/.zshrc" ]; then
     SHELL_RC="$HOME/.zshrc"
 fi
 
-if ! grep -q 'autolycus/venv/bin' "$SHELL_RC" 2>/dev/null; then
-    echo "export PATH=\"$INSTALL_DIR/venv/bin:\$PATH\"" >> "$SHELL_RC"
-    echo "✓ autolycus added to PATH in $SHELL_RC"
+if ! grep -q 'AUTOLYCUS_HOME' "$SHELL_RC" 2>/dev/null; then
+    {
+        echo ""
+        echo "# Autolycus Agent"
+        echo "export AUTOLYCUS_HOME=\"$AUTOLYCUS_HOME_DIR\""
+        echo "export PATH=\"$INSTALL_DIR/venv/bin:\$PATH\""
+    } >> "$SHELL_RC"
+    echo "✓ AUTOLYCUS_HOME configured in $SHELL_RC"
     echo "  Run: source $SHELL_RC"
 else
-    echo "  PATH already configured"
+    echo "  AUTOLYCUS_HOME already configured"
 fi
 
 echo ""
