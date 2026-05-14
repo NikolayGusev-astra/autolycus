@@ -4282,14 +4282,21 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 percent_label = f"{percent}%" if percent is not None else "--"
                 if width < 76:
                     compressions = snapshot.get("compressions", 0)
+<<<<<<< HEAD
                     bg_count = snapshot.get("active_background_tasks", 0)
                     bg_proc_count = snapshot.get("active_background_processes", 0)
+=======
+                    cost_val = snapshot.get("session_cost")
+>>>>>>> 75b06ebbd (fix: add session cost to _get_status_bar_fragments (both narrow and wide terminals))
                     frags = [
                         ("class:status-bar", " ⚕ "),
                         ("class:status-bar-strong", snapshot["model_short"]),
                         ("class:status-bar-dim", " · "),
                         (self._status_bar_context_style(percent), percent_label),
                     ]
+                    if cost_val is not None:
+                        frags.append(("class:status-bar-dim", " · "))
+                        frags.append(("class:status-bar", f"${cost_val:.4f}"))
                     if compressions:
                         frags.append(("class:status-bar-dim", " · "))
                         frags.append((self._compression_count_style(compressions), f"🗜️ {compressions}"))
@@ -4317,18 +4324,27 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
                     bar_style = self._status_bar_context_style(percent)
                     compressions = snapshot.get("compressions", 0)
+<<<<<<< HEAD
                     bg_count = snapshot.get("active_background_tasks", 0)
                     bg_proc_count = snapshot.get("active_background_processes", 0)
+=======
+                    cost_val = snapshot.get("session_cost")
+>>>>>>> 75b06ebbd (fix: add session cost to _get_status_bar_fragments (both narrow and wide terminals))
                     frags = [
                         ("class:status-bar", " ⚕ "),
                         ("class:status-bar-strong", snapshot["model_short"]),
                         ("class:status-bar-dim", " │ "),
                         ("class:status-bar-dim", context_label),
+                    ]
+                    if cost_val is not None:
+                        frags.append(("class:status-bar-dim", " │ "))
+                        frags.append(("class:status-bar", f"${cost_val:.4f}"))
+                    frags.extend([
                         ("class:status-bar-dim", " │ "),
                         (bar_style, self._build_context_bar(percent)),
                         ("class:status-bar-dim", " "),
                         (bar_style, percent_label),
-                    ]
+                    ])
                     if compressions:
                         frags.append(("class:status-bar-dim", " │ "))
                         frags.append((self._compression_count_style(compressions), f"🗜️ {compressions}"))
