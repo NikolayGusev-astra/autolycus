@@ -222,7 +222,10 @@ echo "→ Setting up Autolycus home directory..."
 AUTOLYCUS_HOME_DIR="$HOME/.autolycus"
 mkdir -p "$AUTOLYCUS_HOME_DIR/profiles/default" 2>/dev/null
 
-# Set AUTOLYCUS_HOME in shell rc
+# Export now so child processes (autolycus setup) pick it up
+export AUTOLYCUS_HOME="$AUTOLYCUS_HOME_DIR"
+
+# Set AUTOLYCUS_HOME in shell rc for future sessions
 SHELL_RC="$HOME/.bashrc"
 if [ -f "$HOME/.zshrc" ]; then
     SHELL_RC="$HOME/.zshrc"
@@ -236,10 +239,12 @@ if ! grep -q 'AUTOLYCUS_HOME' "$SHELL_RC" 2>/dev/null; then
         echo "export PATH=\"$INSTALL_DIR/venv/bin:\$PATH\""
     } >> "$SHELL_RC"
     echo "✓ AUTOLYCUS_HOME configured in $SHELL_RC"
-    echo "  Run: source $SHELL_RC"
-else
-    echo "  AUTOLYCUS_HOME already configured"
 fi
+
+# Run quick setup with isolated home
+echo ""
+echo "→ Running initial setup..."
+"$VENV_DIR/bin/autolycus" setup --quick 2>&1 || echo "  Setup finished (you can rerun: autolycus setup)"
 
 echo ""
 echo "╔══════════════════════════════════════════╗"
