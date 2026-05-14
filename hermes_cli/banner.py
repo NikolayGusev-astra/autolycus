@@ -61,13 +61,17 @@ def _skin_color(key: str, fallback: str) -> str:
 
 from hermes_cli import __version__ as VERSION, __release_date__ as RELEASE_DATE
 
-AUTOLYCUS_AGENT_LOGO = """[bold #d4a843]   ╔════════════════════════════════════════════╗[/]
-[bold #d4a843]   ║        ☿      AUTOLYCUS      ☿           ║[/]
-[bold #c9952e]   ║      Enterprise  AI  Agent               ║[/]
-[bold #8a8578]   ║      Son of Hermes                       ║[/]
-[bold #d4a843]   ╚════════════════════════════════════════════╝[/]"""
+AUTOLYCUS_AGENT_LOGO = """[bold #d4a843]  ___  _   _ _____ _____ _   __   _______ _   _ _____ [/]
+[bold #d4a843] / _ \\| | | |_   _|  _  | |  \\ \\ / /  __ \\ | | /  ___|[/]
+[#c9952e]/ /_\\ \\ | | | | | | | | | |   \\ V /| /  \\/ | | \\ `--. [/]
+[#c9952e]|  _  | | | | | | | | | | |    \\ / | |   | | | |`--. \\[/]
+[#b8942e]| | | | |_| | | | \\ \\_/ / |____| | | \\__/\\ |_| /\\__/ /[/]
+[#b8942e]\\_| |_/\\___/  \\_/  \\___/\\_____/\\_/  \\____/\\___/\\____/ [/]"""
 
-AUTOLYCUS_CADUCEUS = """[#8a8578]          ☿          [/]"""Return skills grouped by category, filtered by platform and disabled state.
+AUTOLYCUS_CADUCEUS = """[#8a8578]          ☿          [/]"""
+
+def _get_skills_by_category() -> Dict[str, List[str]]:
+    """Return skills grouped by category, filtered by platform and disabled state.
 
     Delegates to ``_find_all_skills()`` from ``tools/skills_tool`` which already
     handles platform gating (``platforms:`` frontmatter) and respects the
