@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hermes CLI - Main entry point.
+Autolycus CLI - Main entry point.
 
 Usage:
     hermes                     # Interactive chat (default)
