@@ -217,6 +217,22 @@ else
 fi
 
 echo ""
+echo "→ Setting up shell alias..."
+
+SHELL_RC="$HOME/.bashrc"
+if [ -f "$HOME/.zshrc" ]; then
+    SHELL_RC="$HOME/.zshrc"
+fi
+
+if ! grep -q 'autolycus/venv/bin' "$SHELL_RC" 2>/dev/null; then
+    echo "export PATH=\"$INSTALL_DIR/venv/bin:\$PATH\"" >> "$SHELL_RC"
+    echo "✓ autolycus added to PATH in $SHELL_RC"
+    echo "  Run: source $SHELL_RC"
+else
+    echo "  PATH already configured"
+fi
+
+echo ""
 echo "╔══════════════════════════════════════════╗"
 echo "║   Installation complete!                 ║"
 echo "╚══════════════════════════════════════════╝"
