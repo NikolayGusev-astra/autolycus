@@ -7,12 +7,17 @@ plugins/sbl/deep_audit.py — Полный аудит системы через 
   - stdlib        — всё остальное (os, re, json, subprocess)
 
 Зависимости (pip):
-  — нет. Только fd и rg из пакетного менеджера ОС.
+  — нет. Только fd и rg как статические бинарники.
 
-Установка:
-  apt install fd-find ripgrep   # Debian/Ubuntu
-  dnf install fd-find ripgrep   # Fedora
-  brew install fd ripgrep       # macOS
+Установка (portable — без sudo):
+  mkdir -p ~/bin
+  # fd: https://github.com/sharkdp/fd/releases — static musl
+  # rg: https://github.com/BurntSushi/ripgrep/releases — static musl
+  # ln -sf <extracted>/<binary> ~/bin/<binary>
+  # export PATH="$HOME/bin:$PATH"
+
+Константы _FD и _RG ниже — заменить под свою машину.
+См. скил local-infra-audit — portable tools и полная документация.
 """
 
 from __future__ import annotations
@@ -24,6 +29,9 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ── Shell helper ────────────────────────────────────────────────────────────
+# Используем абсолютные пути — ~/bin может не быть в PATH у subprocess
+_FD = "/home/astralinux.ru/ngusev/bin/fd"
+_RG = "/home/astralinux.ru/ngusev/bin/rg"
 
 def _run(cmd: str, timeout: int = 30) -> str:
     try:
@@ -79,7 +87,7 @@ def _scan_processes() -> set[str]:
 def _scan_configs(basedirs: list[str] | None = None) -> list[dict]:
     """Все конфиги через fd — без ограничений глубины."""
     basedirs = basedirs or ["/etc", "/opt", "/usr/local/etc"]
-    raw = _run(f"fd -t f -e conf -e json -e yaml -e toml -e cfg -e ini . {' '.join(basedirs)} 2>/dev/null")
+    raw = _run(f'{_FD} -t f -e conf -e json -e yaml -e toml -e cfg -e ini . {" ".join(basedirs)} 2>/dev/null')
     configs = []
     for line in raw.split("\n"):
         p = line.strip()
@@ -128,7 +136,7 @@ def _scan_logs() -> dict[str, int]:
 
 def _scan_ports() -> dict[str, str]:
     """ss -tlnp — кто на каких портах."""
-    raw = _run("ss -tlnp 2>/dev/null | rg -v '127.0.0.1:22|::1:22'")
+    raw = _run(f"ss -tlnp 2>/dev/null | {_RG} -v '127.0.0.1:22|::1:22'")
     ports: dict[str, str] = {}
     for line in raw.split("\n"):
         parts = line.strip().split()
