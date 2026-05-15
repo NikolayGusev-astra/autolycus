@@ -374,7 +374,15 @@ def _on_pre_tool_call(
     args: Optional[dict] = None,
     **kwargs,
 ) -> Optional[dict]:
-    """Level 2: Block write_file with large content."""
+    """Level 2: Block write_file with large content.
+
+    Universal threshold: ANY write_file with content >12K is blocked,
+    regardless of file extension. The advice differs by file type:
+    - .md/.txt/.rst → file_doc_create
+    - all others → execute_code or split into two turns
+
+    A 25KB .html diagram + 5KB text easily exceeds max_tokens (often 4-16K).
+    """
     if tool_name != "write_file" or not isinstance(args, dict):
         return None
 
@@ -382,28 +390,37 @@ def _on_pre_tool_call(
     if not content:
         return None
 
-    # Only block for document-like files (.md, .txt, .rst, .doc)
+    if len(content) <= 12000:
+        return None
+
     path = args.get("path", "")
     doc_extensions = (".md", ".txt", ".rst", ".doc", ".docx")
-    if not any(path.endswith(ext) for ext in doc_extensions):
-        # Block for large ANY file if content is really large (>50K chars)
-        if len(content) <= 50000:
-            return None
 
-    if len(content) > 15000:
-        return {
-            "action": "block",
-            "message": (
-                f"⛔ write_file заблокирован: контент слишком большой "
-                f"({len(content)} байт). Используй file_doc_create:\n"
-                f"1. file_doc_create path='{path}' — создай сессию\n"
-                f"2. file_doc_write session='<id>' section='<id>' — "
-                f"пиши по одному разделу\n"
-                f"3. file_doc_finalize session='<id>' — собери документ"
-            ),
-        }
+    if any(path.endswith(ext) for ext in doc_extensions):
+        advice = (
+            f"1. file_doc_create path='{path}' — создай сессию документа\n"
+            f"2. file_doc_write session='<id>' section='<id>' — пиши по одному разделу\n"
+            f"3. file_doc_finalize session='<id>' — собери готовый файл"
+        )
+    else:
+        advice = (
+            f"1. Сначала ответь коротко (без write_file), затем отдельным turn "
+            f"вызови write_file без текста\n"
+            f"2. Или используй execute_code:\n"
+            f"   from hermes_tools import write_file\n"
+            f"   write_file(path='{path}', content='...')\n"
+            f"   print('OK')"
+        )
 
-    return None
+    return {
+        "action": "block",
+        "message": (
+            f"⛔ write_file заблокирован: контент {len(content)} байт.\n"
+            f"write_file с контентом >12K в одном turn с текстом — "
+            f"риск транкейшна (finish_reason='length').\n\n"
+            f"{advice}"
+        ),
+    }
 
 
 def _on_transform_tool_result(

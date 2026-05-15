@@ -39,19 +39,29 @@ class TestPreToolCallBlock:
         assert result is None  # not blocked
 
     def test_allow_non_doc_extension(self):
-        """write_file with 20K .py → allowed (code, not document)."""
+        """write_file with 20K .py → blocked now (universal 12K threshold)."""
         result = _on_pre_tool_call(
             tool_name="write_file",
             args={"path": "/tmp/script.py", "content": "C" * 20000},
         )
-        assert result is None  # .py is not a doc extension
+        assert result is not None
+        assert result.get("action") == "block"
+        assert "execute_code" in result.get("message", "")
+
+    def test_allow_small_py(self):
+        """write_file with 5K .py → allowed (under 12K)."""
+        result = _on_pre_tool_call(
+            tool_name="write_file",
+            args={"path": "/tmp/script.py", "content": "C" * 5000},
+        )
+        assert result is None
 
     def test_block_at_exact_threshold(self):
-        """15001 chars → blocked, 14999 → allowed."""
+        """12001 chars → blocked, 11999 → allowed."""
         # Just above threshold
         blocked = _on_pre_tool_call(
             tool_name="write_file",
-            args={"path": "/tmp/doc.md", "content": "D" * 15001},
+            args={"path": "/tmp/doc.md", "content": "D" * 12001},
         )
         assert blocked is not None
         assert blocked.get("action") == "block"
@@ -59,9 +69,19 @@ class TestPreToolCallBlock:
         # Just below threshold
         allowed = _on_pre_tool_call(
             tool_name="write_file",
-            args={"path": "/tmp/doc.md", "content": "E" * 14999},
+            args={"path": "/tmp/doc.md", "content": "E" * 11999},
         )
         assert allowed is None
+
+    def test_block_large_html_diagram(self):
+        """write_file with 25KB .html → blocked (universal threshold)."""
+        result = _on_pre_tool_call(
+            tool_name="write_file",
+            args={"path": "/tmp/diagram.html", "content": "X" * 25000},
+        )
+        assert result is not None
+        assert result.get("action") == "block"
+        assert "execute_code" in result.get("message", "")
 
     def test_block_message_contains_doc_create(self):
         """Block message must mention file_doc_create."""
@@ -116,13 +136,14 @@ class TestPreToolCallBlock:
         assert result.get("action") == "block"
 
     def test_very_large_non_doc_still_blocked(self):
-        """write_file with 60K .py → blocked (too large even for code)."""
+        """write_file with 60K .py → blocked (universal 12K threshold)."""
         result = _on_pre_tool_call(
             tool_name="write_file",
             args={"path": "/tmp/script.py", "content": "I" * 60000},
         )
         assert result is not None
         assert result.get("action") == "block"
+        assert "execute_code" in result.get("message", "")
 
     def test_repeated_write_file_detected(self):
         """After resetting counter, first call not warned; second+ is warned."""
