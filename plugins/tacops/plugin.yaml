@@ -1,0 +1,6 @@
+name: tacops
+version: 1.0.0
+description: "Terraform + Ansible CoPilot — запуск devops-инструментов из portable/, развёртывание стендов, работа с OpenNebula"
+author: "Nikolay Gusev"
+hooks:
+  - on_session_start

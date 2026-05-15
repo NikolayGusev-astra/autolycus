@@ -59,6 +59,10 @@ cli-config.yaml
 
 # Skills Hub state (lives in ~/.hermes/skills/.hub/ at runtime, but just in case)
 skills/.hub/
+
+# Portable toolchain — бинарники и venv не храним в git
+/portable/bin/
+/portable/venv/
 ignored/
 .worktrees/
 environments/benchmarks/evals/
