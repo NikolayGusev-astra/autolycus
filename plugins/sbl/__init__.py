@@ -138,6 +138,31 @@ def _ensure_snapshot_dir() -> Path:
     return _SNAPSHOT_DIR
 
 
+def _save_learned(services, file_owners, data: dict | None):
+    """Единая точка сохранения learned_deps.json.
+
+    Вызывается из on_session_start (авто-аудит) и /sbl deep (ручной).
+    data = None → сохраняет только services + file_owners (если нет deep audit).
+    """
+    learned = {
+        "services": services,
+        "file_owners": file_owners,
+    }
+    if data is not None:
+        learned["deep_audit"] = {
+            "timestamp": datetime.now().isoformat(),
+            "configs_total": data.get("configs_total", 0),
+            "processes_total": data.get("processes_total", 0),
+            "ports_total": data.get("ports_total", 0),
+            "n_cross": data.get("n_cross", 0),
+            "services": sorted(data.get("services", {}).keys()),
+            "cert_users": data.get("cert_users", []),
+            "cert_domains": data.get("cert_domains", []),
+        }
+    snap_dir = _ensure_snapshot_dir()
+    (snap_dir / "learned_deps.json").write_text(json.dumps(learned, indent=2, default=str))
+
+
 def _take_snapshot() -> ServiceMap:
     """Dynamic audit: systemctl + ss + /proc + heuristics. No hardcoded services."""
     global _snapshot_taken, _service_map
@@ -497,12 +522,8 @@ def _on_session_start(**kwargs) -> None:
                 _service_map.services[svc]['ports'] = info['ports']
             if info.get('cross'):
                 _service_map.services[svc]['cross'] = info['cross']
-        # Персист
-        learned = {'services': _service_map.services, 'file_owners': _service_map.file_owners,
-                   'deep_audit': {'timestamp': datetime.now().isoformat(), 'services': list(data['services'].keys()),
-                                  'cert_users': data['cert_users'], 'cert_domains': data['cert_domains']}}
-        snap_dir = _ensure_snapshot_dir()
-        (snap_dir / 'learned_deps.json').write_text(json.dumps(learned, indent=2, default=str))
+        # Персист — единая точка сохранения
+        _save_learned(_service_map.services, _service_map.file_owners, data)
         # Возвращаем сводку через logger — она попадёт в контекст агента
         logger.info("[SBL] === DEEP AUDIT SUMMARY ===\n%s", summary)
     except ImportError as e:
@@ -545,21 +566,24 @@ def _handle_sbl_snapshot(cmd_args: str = "") -> str:
         try:
             from plugins.sbl.deep_audit import _audit, format_summary
             data = _audit()
-            # update learned_deps.json
-            learned = {
-                "deep_audit": {
-                    "timestamp": datetime.now().isoformat(),
-                    "configs_total": data.get("configs_total", 0),
-                    "processes_total": data.get("processes_total", 0),
-                    "ports_total": data.get("ports_total", 0),
-                    "n_cross": data.get("n_cross", 0),
-                    "services": list(data.get("services", {}).keys()),
-                    "cert_users": data.get("cert_users", []),
-                    "cert_domains": data.get("cert_domains", []),
-                }
-            }
+            # Читаем существующие services + file_owners (не терять!)
             snap_dir = _ensure_snapshot_dir()
-            (snap_dir / "learned_deps.json").write_text(json.dumps(learned, indent=2, default=str))
+            learned_file = snap_dir / "learned_deps.json"
+            existing = {}
+            if learned_file.exists():
+                try:
+                    existing = json.loads(learned_file.read_text())
+                except Exception:
+                    pass
+            # Merge: старые сервисы (чтобы не потерять) + новые из deep audit
+            existing_services = existing.get("services", {})
+            new_services = data.get("services", {})
+            services = {**existing_services, **new_services}
+            if not services:
+                services = _service_map.services
+            file_owners = existing.get("file_owners", _service_map.file_owners)
+            # Единая точка сохранения — merge, не replace
+            _save_learned(services, file_owners, data)
             return format_summary(data)
         except ImportError as e:
             return f"SBL Deep Audit unavailable: {e}. See skill local-infra-audit — нужны static musl бинарники fd + rg в ~/bin/"
