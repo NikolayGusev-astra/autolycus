@@ -253,7 +253,6 @@ model:
   provider: openrouter
   base_url: https://openrouter.ai/api/v1
   default: deepseek/deepseek-v4-flash
-  max_tokens: 4096
   context_length: 1048576
   api_mode: chat_completions
   usage_tier: free
