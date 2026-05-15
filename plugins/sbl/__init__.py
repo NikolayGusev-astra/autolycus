@@ -583,33 +583,69 @@ def _handle_sbl_snapshot(cmd_args: str = "") -> str:
             f.unlink()
         return "SBL reset."
 
+    if subcmd in ("help", "--help", "-h"):
+        return (
+            "SBL (System Boundary Layer) — команды:\n"
+            "  status            текущее состояние (по умолчанию)\n"
+            "  snapshot          принудительный пересбор снапшота\n"
+            "  deep              глубокий аудит (fd + rg) — порты, конфиги, серты\n"
+            "  deps [путь]       карта зависимостей конфиги → сервисы\n"
+            "  changes           история изменений через write_file/patch/terminal\n"
+            "  reset             сбросить все данные SBL\n"
+            "  help              это сообщение"
+        )
+
     # status (default)
     if not _has_snapshot():
         return "SBL: No snapshot. First SYSTEM write will auto-snapshot."
     sm = _service_map
-    # Проверяем, был ли deep audit
     snap_dir = _ensure_snapshot_dir()
     learned_file = snap_dir / "learned_deps.json"
+
+    # Age of snapshot
+    snap_file = snap_dir / "service_map.json"
+    snap_age = "?"
+    if snap_file.exists():
+        try:
+            age_m = int((datetime.now().timestamp() - snap_file.stat().st_mtime) / 60)
+            snap_age = f"{age_m}m" if age_m < 60 else f"{age_m // 60}h{age_m % 60}m"
+        except OSError:
+            pass
+
+    # Deep audit info
     deep_audit_info = ""
     if learned_file.exists():
         try:
             learned = json.loads(learned_file.read_text())
             da = learned.get("deep_audit", {})
             if da.get("services"):
+                da_age = "?"
+                if da.get("timestamp"):
+                    try:
+                        da_ts = datetime.fromisoformat(da["timestamp"]).timestamp()
+                        da_m = int((datetime.now().timestamp() - da_ts) / 60)
+                        da_age = f"{da_m}m" if da_m < 60 else f"{da_m // 60}h{da_m % 60}m"
+                    except Exception:
+                        pass
                 deep_audit_info = (
-                    f"\n  Deep audit: {len(da['services'])} active services"
-                    f"\n  Cert users: {len(da.get('cert_users', []))}"
+                    f"\n  Deep audit: {len(da['services'])} active services (age: {da_age})\n"
+                    f"    configs: {da.get('configs_total', '?')}, processes: {da.get('processes_total', '?')}\n"
+                    f"    ports: {da.get('ports_total', '?')}, cert users: {len(da.get('cert_users', []))}"
                 )
                 if da.get("cert_domains"):
-                    deep_audit_info += f"\n  SSL domains: {len(da['cert_domains'])}"
+                    deep_audit_info += f", SSL domains: {len(da['cert_domains'])}"
         except Exception:
             pass
-    lines = [f"SBL Status: {len(sm.services)} services (snapshot), {len(sm.file_owners)} configs"]
+
+    lines = [
+        f"SBL Status\n"
+        f"  Snapshot:  {len(sm.services)} services, {len(sm.file_owners)} configs (age: {snap_age})\n"
+        f"  Changes:   {len(_change_log)} applied since snapshot"
+    ]
+    if _change_log:
+        lines.append(f"  Last:      {_change_log[-1]['path']}")
     if deep_audit_info:
         lines.append(deep_audit_info)
-    lines.append(f"  Changes applied: {len(_change_log)}")
-    if _change_log:
-        lines.append(f"  Recent: {_change_log[-1]['path']}")
     return "\n".join(lines)
 
 
