@@ -166,8 +166,8 @@ class DomainSpec:
 class Credentials:
     """Учётные данные для развёртывания стенда."""
     # OpenNebula
-    one_endpoint: str = "https://laika.astracloud.ru:2633/RPC2"
-    one_username: str = "ngusev"
+    one_endpoint: str = ""          # задаётся через env ONE_ENDPOINT или в orchestrator
+    one_username: str = ""           # задаётся через env ONE_USERNAME
     one_token: str = ""
 
     # ВМ
@@ -275,7 +275,7 @@ class StandSpec:
     # Labels для OpenNebula
     labels: dict[str, str] = field(default_factory=lambda: {
         "project": "tacops",
-        "owner": "ngusev",
+        "owner": "tacops",
     })
 
     # Все ВМ одним списком (для итерации)

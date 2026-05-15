@@ -152,8 +152,8 @@ def one_client(endpoint: str = "", username: str = "", token: str = ""):
     """Создать клиент OpenNebula (pyone.OneServer)."""
     from pyone import OneServer
 
-    ep = endpoint or os.environ.get("ONE_ENDPOINT", "https://laika.astracloud.ru:2633/RPC2")
-    usr = username or os.environ.get("ONE_USERNAME", "ngusev")
+    ep = endpoint or os.environ.get("ONE_ENDPOINT", "")
+    usr = username or os.environ.get("ONE_USERNAME", "")
     tok = token or os.environ.get("ONE_TOKEN", "")
 
     return OneServer(ep, session=f"{usr}:{tok}")

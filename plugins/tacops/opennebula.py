@@ -61,9 +61,13 @@ class OneClient:
         import xmlrpc.client
 
         self.endpoint = endpoint or os.environ.get(
-            "ONE_ENDPOINT", "https://laika.astracloud.ru:2633/RPC2"
+            "ONE_ENDPOINT", ""
         )
-        self.username = username or os.environ.get("ONE_USERNAME", "ngusev")
+        if not self.endpoint:
+            raise ValueError("ONE_ENDPOINT не задан. Укажите endpoint или установите переменную ONE_ENDPOINT")
+        self.username = username or os.environ.get("ONE_USERNAME", "")
+        if not self.username:
+            raise ValueError("ONE_USERNAME не задан. Укажите username или установите переменную ONE_USERNAME")
         self.token = token or os.environ.get("ONE_TOKEN", "")
 
         if not self.token:
