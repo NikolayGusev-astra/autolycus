@@ -452,31 +452,35 @@ def _on_transform_tool_result(
 
 
 def _on_session_start(**kwargs) -> None:
-    """Full audit on first session on a new system.
-    
-    Two-phase audit:
-      1. Quick snapshot (systemctl + ss + /proc) — always, <1s
-      2. Deep audit (fd + rg + cert cross-ref) — only on first run
-    
-    Deep audit runs synchronously on first session. The user sees
-    a complete infrastructure map before any write happens.
-    
-    Returns None (hook), but persists to disk so future restarts
-    load via _has_snapshot().
+    """Двухфазный аудит системы.
+
+    Фаза 1: быстрый snapshot (systemd + /proc) — всегда.
+    Фаза 2: глубокий аудит (fd + rg) — если learned_deps.json устарел или отсутствует.
     """
+    # Phase 1: Quick snapshot
     if _has_snapshot():
         logger.info("[SBL] Snapshot loaded: %d services, %d configs",
                     len(_service_map.services), len(_service_map.file_owners))
-        return
-    
-    # Phase 1: Quick snapshot (always)
-    logger.info("[SBL] First run on new system — starting full audit...")
-    try:
-        sm = _take_snapshot()
-        logger.info("[SBL] Snapshot: %d services, %d configs",
-                    len(sm.services), len(sm.file_owners))
-    except Exception as e:
-        logger.error("[SBL] Snapshot failed: %s", e)
+    else:
+        logger.info("[SBL] First run on new system — starting full audit...")
+        try:
+            sm = _take_snapshot()
+            logger.info("[SBL] Snapshot: %d services, %d configs",
+                        len(sm.services), len(sm.file_owners))
+        except Exception as e:
+            logger.error("[SBL] Snapshot failed: %s", e)
+
+    # Phase 2: Deep audit (fd + rg + cert) — если нет learned_deps или он старше 24ч
+    snap_dir = _ensure_snapshot_dir()
+    learned_file = snap_dir / "learned_deps.json"
+    need_deep = not learned_file.exists()
+    if not need_deep and learned_file.exists():
+        try:
+            mtime = learned_file.stat().st_mtime
+            age_hours = (datetime.now().timestamp() - mtime) / 3600
+            need_deep = age_hours > 24
+        except OSError:
+            need_deep = True
     
     # Phase 2: Deep audit (fd + rg + cert) — only on first run
     try:
@@ -537,15 +541,30 @@ def _handle_sbl_snapshot(cmd_args: str = "") -> str:
             lines.append(f"  {fpath} → {', '.join(services)}")
         return "\n".join(lines)
 
-    if subcmd == "deep-audit":
+    if subcmd in ("deep-audit", "deep"):
         try:
             from plugins.sbl.deep_audit import _audit, format_summary
             data = _audit()
+            # update learned_deps.json
+            learned = {
+                "deep_audit": {
+                    "timestamp": datetime.now().isoformat(),
+                    "configs_total": data.get("configs_total", 0),
+                    "processes_total": data.get("processes_total", 0),
+                    "ports_total": data.get("ports_total", 0),
+                    "n_cross": data.get("n_cross", 0),
+                    "services": list(data.get("services", {}).keys()),
+                    "cert_users": data.get("cert_users", []),
+                    "cert_domains": data.get("cert_domains", []),
+                }
+            }
+            snap_dir = _ensure_snapshot_dir()
+            (snap_dir / "learned_deps.json").write_text(json.dumps(learned, indent=2, default=str))
             return format_summary(data)
         except ImportError as e:
-            return f"SBL Deep Audit unavailable: {e}. Install fd and rg: apt install fd-find ripgrep"
+            return f"SBL Deep Audit unavailable: {e}. See skill local-infra-audit — нужны static musl бинарники fd + rg в ~/bin/"
         except Exception as e:
-            return f"SBL Deep Audit failed: {e}"
+            return f"SBL Deep Audit failed: {type(e).__name__}: {e}"
 
     if subcmd == "changes":
         if not _change_log:
