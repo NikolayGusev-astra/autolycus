@@ -280,6 +280,10 @@ plugins:
     - ultra-governance
     - sbl
     - findings-to-wiki
+    - rtk
+  ultra_governance:
+    rtk:
+      enabled: false
 CFGEOF
     echo "✓ Default config created in $AUTOLYCUS_HOME_DIR"
 fi

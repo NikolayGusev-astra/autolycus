@@ -75,7 +75,14 @@ plugins:
 
 ---
 
-## RTK Filter (Reduced Token Kernel)
+## RTK Filter (Reduced Token Kernel) — DEPRECATED
+
+> **Заменён на `plugins/rtk/` (неразрушающий компрессор с recovery).**
+> Старый RTK (`rtk.py`) всё ещё работает, но **отключён по умолчанию**
+> в новых установках (`rtk.enabled: false` в конфиге ultra-governance).
+> Новый RTK: 84% экономии, 100% данных восстанавливаемо.
+
+Старый (деструктивный) head/tail truncation + repeat compaction:
 
 Пост-процессинг tool-результатов для сокращения токенов в контексте агента.
 

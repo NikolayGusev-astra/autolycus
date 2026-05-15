@@ -37,7 +37,7 @@ These features are unique to Autolycus and **not** available in upstream Hermes 
 |---------|-------------|
 | **SBL (System Boundary Layer)** | FHS-based path classifier. Pre-write dependency checks — agent knows `/etc/nginx/` belongs to nginx before touching it. Auto-snapshot of running services. |
 | **Ultra Governance** | Policy Engine with 4 modes (off/audit/simulate/enforce). Deny-list, param pattern blocking, max param bytes. Built-in protection against `rm -rf /`, fork bombs, pipe-to-shell. |
-| **RTK Filter** | Reduced Token Kernel — head/tail truncation + repeat compaction. ~58% token savings on tool outputs. |
+| **RTK Filter** | Reduced Token Kernel — type-aware compression (terminal/read_file/search_files). ~84% average token savings, 100% data recoverable via `rtk_recover` tool. Non-destructive — full output persisted to disk. |
 | **Sanitize MCP** | Pre-filters dangerous MCP tools before they reach the agent. |
 | **findings_to_wiki + ContextWriter** | Persistent memory that survives context compression. Auto-saves key facts every turn. |
 | **White Label** | AUTOLYCUS_HOME isolation (`~/.autolycus/`), custom branding, entry point, patches system. |
