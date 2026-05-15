@@ -1,0 +1,57 @@
+# Versions of portable tools
+# install.sh reads this file to know what to download
+---
+terraform:
+  version: "1.15.3"
+  url: "https://releases.hashicorp.com/terraform/1.15.3/terraform_1.15.3_linux_amd64.zip"
+  checksum_sha256: ""
+
+fd:
+  version: "10.4.2"
+  url: "https://github.com/sharkdp/fd/releases/download/v10.4.2/fd-v10.4.2-x86_64-unknown-linux-musl.tar.gz"
+  checksum_sha256: ""
+
+rg:
+  version: "15.1.0"
+  url: "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-unknown-linux-musl.tar.gz"
+  checksum_sha256: ""
+
+gh:
+  version: "2.92.0"
+  url: "https://github.com/cli/cli/releases/download/v2.92.0/gh_2.92.0_linux_amd64.tar.gz"
+  checksum_sha256: ""
+
+jq:
+  version: "1.8.1"
+  url: "https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-linux-amd64"
+  checksum_sha256: ""
+
+yq:
+  version: "4.53.2"
+  url: "https://github.com/mikefarah/yq/releases/download/v4.53.2/yq_linux_amd64"
+  checksum_sha256: ""
+
+ansible:
+  version: "core-2.15.10"
+  pip_packages:
+    - "ansible-core==2.15.10"
+    - "pyone"
+  collections:
+    - name: "astra.ald_pro"
+      version: ">=6.0.0"
+    - name: "astra.astralinux"
+      version: ">=0.10.0"
+    - name: "astra.keycloak"
+      version: ">=2.0.0"
+    - name: "astra.docker"
+      version: ">=5.0.0"
+    - name: "ansible.utils"
+      version: ">=3.0.0"
+    - name: "community.general"
+      version: ">=7.0.0"
+    - name: "community.crypto"
+      version: ">=2.0.0"
+    - name: "community.docker"
+      version: ">=4.6.0"
+    - name: "community.postgresql"
+      version: ">=2.0.0"
