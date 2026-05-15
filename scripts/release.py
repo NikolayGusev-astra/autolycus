@@ -43,6 +43,7 @@ AUTHOR_MAP = {
     "teknium1@gmail.com": "teknium1",
     "30366221+WorldWriter@users.noreply.github.com": "WorldWriter",
     "dafeng@DafengdeMacBook-Pro.local": "WorldWriter",
+    "anadi.jaggia@gmail.com": "Jaggia",
     "32201324+simpolism@users.noreply.github.com": "simpolism",
     "simpolism@gmail.com": "simpolism",
     "jake@nousresearch.com": "simpolism",
@@ -68,9 +69,17 @@ AUTHOR_MAP = {
     "hirokazu.ogawa@kwansei.ac.jp": "hrkzogw",
     "datapod.k@gmail.com": "dandacompany",
     "treydong.zh@gmail.com": "TreyDong",
+    "phil.thomas@gametime.co": "explainanalyze",
     "kyanam.preetham@gmail.com": "pkyanam",
+    "zhizhong.xu@shopee.com": "1000Delta",
+    "30397170+1000Delta@users.noreply.github.com": "1000Delta",
+    "szymonclawd@mac.home": "szymonclawd",
+    "257759490+szymonclawd@users.noreply.github.com": "szymonclawd",
+    "zhanganzhe@tenclass.com": "luoyuctl",
+    "51604064+luoyuctl@users.noreply.github.com": "luoyuctl",
     "127238744+teknium1@users.noreply.github.com": "teknium1",
     "147827411+EloquentBrush@users.noreply.github.com": "AhmetArif0",
+    "97489706+purzbeats@users.noreply.github.com": "purzbeats",
     "hugosequier@gmail.com": "Hugo-SEQUIER",
     "128259593+Gutslabs@users.noreply.github.com": "Gutslabs",
     "50326054+nocturnum91@users.noreply.github.com": "nocturnum91",
@@ -88,6 +97,7 @@ AUTHOR_MAP = {
     "62420081+kjames2001@users.noreply.github.com": "kjames2001",
     "132184373+wilsen0@users.noreply.github.com": "wilsen0",
     "ra2157218@gmail.com": "Abd0r",
+    "oswaldb22@users.noreply.github.com": "oswaldb22",
     "abdielv@proton.me": "AJV20",
     "mason@growagainorchids.com": "masonjames",
     "ytchen0719@gmail.com": "liquidchen",
@@ -142,6 +152,7 @@ AUTHOR_MAP = {
     "sandrohub013@gmail.com": "SandroHub013",
     "maciekczech@users.noreply.github.com": "maciekczech",
     "154585401+LeonSGP43@users.noreply.github.com": "LeonSGP43",
+    "cine.dreamer.one@gmail.com": "LeonSGP43",
     "zjtan1@gmail.com": "zeejaytan",
     "asslaenn5@gmail.com": "Aslaaen",
     "trae.anderson17@icloud.com": "Tkander1715",
@@ -715,6 +726,7 @@ AUTHOR_MAP = {
     "tangyuanjc@JCdeAIfenshendeMac-mini.local": "tangyuanjc",
     "harryplusplus@gmail.com": "harryplusplus",
     "anthhub@163.com": "anthhub",
+    "vmphuongit@gmail.com": "phuongvm",
     "allard.quek@singtel.com": "AllardQuek",
     "shenuu@gmail.com": "shenuu",
     "xiayh17@gmail.com": "xiayh0107",
@@ -757,6 +769,8 @@ AUTHOR_MAP = {
     "chayton@sina.com": "ycbai",
     "longsizhuo@gmail.com": "longsizhuo",
     "chenb19870707@gmail.com": "ms-alan",
+    "agorgianitisj@hotmail.com": "johnisag",
+    "phil.thomas@gametime.co": "explainanalyze",
     "276886827+WuTianyi123@users.noreply.github.com": "WuTianyi123",
     "22549957+li0near@users.noreply.github.com": "li0near",
     "guoyu801@gmail.com": "li0near",
@@ -855,6 +869,8 @@ AUTHOR_MAP = {
     "dpaluy@users.noreply.github.com": "dpaluy",
     "psikonetik@gmail.com": "el-analista",
     "chenb19870707@gmail.com": "ms-alan",
+    "agorgianitisj@hotmail.com": "johnisag",
+    "phil.thomas@gametime.co": "explainanalyze",
     "hex-clawd@users.noreply.github.com": "hex-clawd",
     "154585401+LeonSGP43@users.noreply.github.com": "LeonSGP43",
     "barteq@hacknotes.local": "barteqpl",
@@ -1028,6 +1044,13 @@ AUTHOR_MAP = {
     "1700913+pearjelly@users.noreply.github.com": "pearjelly",  # PR #25388 salvage (feishu ws connect override sync)
     "100820567+raymaylee@users.noreply.github.com": "raymaylee",  # PR #25394 salvage (context compaction status)
     "122434621+Tianyu199509@users.noreply.github.com": "Tianyu199509",  # PR #25421 salvage (gateway PID Windows)
+    "58224596+HxT9@users.noreply.github.com": "HxT9",  # PR #25760 salvage (web sync-assets cross-platform)
+    "120411712+evgyur@users.noreply.github.com": "evgyur",  # PR #25651 salvage (docs media session context)
+    "36507055+AsoTora@users.noreply.github.com": "AsoTora",  # PR #25624 salvage (MCP auth no-retry)
+    "98992931+oxngon@users.noreply.github.com": "oxngon",  # PR #25603 salvage (forward image attachments to bg tasks)
+    "37467487+yifengingit@users.noreply.github.com": "yifengingit",  # PR #25589 salvage (AUTOINCREMENT id ordering)
+    "89525629+vanthinh6886@users.noreply.github.com": "vanthinh6886",  # PR #25562 salvage (.env 0600 perms)
+    "16034932+Arkmusn@users.noreply.github.com": "Arkmusn",  # PR #25559 salvage (approvals.timeout from config)
 }
 
 
