@@ -1,0 +1,19 @@
+# Шаблон: Квартальный отчёт
+name: quarterly-report
+description: "Стандартный квартальный отчёт с executive summary и ключевыми метриками"
+sections:
+  - id: executive-summary
+    title: "Executive Summary"
+    description: "Краткое резюме отчёта (1-2 абзаца)"
+  - id: key-metrics
+    title: "Ключевые метрики"
+    description: "Таблица основных показателей: выручка, затраты, прибыль, NPS"
+  - id: achievements
+    title: "Достижения квартала"
+    description: "Основные достижения, запуски, улучшения"
+  - id: challenges
+    title: "Проблемы и риски"
+    description: "Что пошло не так, блокеры, риски на следующий период"
+  - id: plans
+    title: "План на следующий квартал"
+    description: "Ключевые цели, OKR, milestones"

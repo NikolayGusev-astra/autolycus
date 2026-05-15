@@ -1,0 +1,19 @@
+# Шаблон: Протокол совещания
+name: meeting-minutes
+description: "Протокол совещания с agenda, решениями и action items"
+sections:
+  - id: header
+    title: "Дата, участники, тема"
+    description: "Дата, время, список участников, тема встречи"
+  - id: agenda
+    title: "Повестка"
+    description: "Обсуждаемые вопросы по порядку"
+  - id: decisions
+    title: "Принятые решения"
+    description: "Ключевые решения, голосование, кто принял"
+  - id: action-items
+    title: "Action Items"
+    description: "Что нужно сделать, кто ответственный, дедлайн"
+  - id: next-meeting
+    title: "Следующая встреча"
+    description: "Дата и тема следующей встречи"

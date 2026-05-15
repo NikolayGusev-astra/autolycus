@@ -1,0 +1,22 @@
+# Шаблон: Аналитический обзор / исследование
+name: research-analysis
+description: "Структурированный анализ источников: методология, данные, выводы"
+sections:
+  - id: methodology
+    title: "Методология"
+    description: "Подход к анализу, критерии отбора, ограничения"
+  - id: sources-overview
+    title: "Обзор источников"
+    description: "Перечень и краткая характеристика каждого источника"
+  - id: key-findings
+    title: "Ключевые находки"
+    description: "Основные факты, цифры, зависимости"
+  - id: analysis
+    title: "Анализ и интерпретация"
+    description: "Глубокий разбор, cross-source synthesis, противоречия"
+  - id: conclusions
+    title: "Выводы и рекомендации"
+    description: "Итоговые выводы, рекомендации, следующие шаги"
+  - id: references
+    title: "Источники"
+    description: "Список источников со ссылками"
