@@ -127,6 +127,7 @@ def _load_config() -> Dict[str, Any]:
 
         # Pattern detection
         "error_threshold": 3,       # consecutive errors → critical
+        "similarity_threshold": 0.85,  # fuzzy match ratio for no-progress
         "tool_loop_window": 6,      # window for tool loop detection
         "no_progress_threshold": 3, # identical calls → warning
         "budget_limit": 10.0,       # USD before critical signal

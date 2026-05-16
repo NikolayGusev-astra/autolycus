@@ -13,6 +13,7 @@ Each detector returns a Signal (or None) with severity and message.
 
 from __future__ import annotations
 
+import difflib
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
@@ -187,31 +188,59 @@ def detect_no_progress(
     db_session: Any,
     session_id: str,
     threshold: int = 3,
+    similarity_threshold: float = 0.85,
 ) -> Optional[Signal]:
-    """Detect repeated identical error text from read-only tools.
+    """Detect repeated similar content from read-only tools.
 
-    Looks for 3+ consecutive calls of the same tool with the same
-    error-text prefix.
+    Uses fuzzy string matching (difflib.SequenceMatcher) to catch
+    semantically identical calls with slightly different text.
+
+    Args:
+        db_session: Active SessionDB instance.
+        session_id: Session to scan.
+        threshold: Number of consecutive similar calls to trigger (default: 3).
+        similarity_threshold: Minimum ratio for "same content" (0.0-1.0, default: 0.85).
+
+    Returns:
+        Signal if no-progress detected, else None.
     """
     seq = rtk_meta.get_tool_sequence(db_session, session_id, limit=threshold + 2)
     if len(seq) < threshold:
         return None
 
-    # Group by tool name, check for identical content previews
-    from collections import Counter
-    tool_previews = [(s["tool_name"], s.get("content_preview", "")[:100]) for s in seq[:threshold]]
+    # Group by tool name, check for similar content previews (fuzzy match)
+    tool_previews = [(s["tool_name"], s.get("content_preview", "")[:200]) for s in seq[:threshold]]
 
     if len(tool_previews) < threshold:
         return None
 
     first_tool, first_preview = tool_previews[0]
-    if all(t == first_tool and p == first_preview for t, p in tool_previews):
+    if not first_preview:
+        return None
+
+    # Compare all pairs — use the minimum similarity ratio
+    all_same_tool = all(t == first_tool for t, _ in tool_previews)
+    if not all_same_tool:
+        return None
+
+    similarities = []
+    for _, preview in tool_previews[1:]:
+        ratio = difflib.SequenceMatcher(None, first_preview, preview).ratio()
+        similarities.append(ratio)
+
+    min_similarity = min(similarities) if similarities else 1.0
+    if min_similarity >= similarity_threshold:
         return Signal(
             code="NO_PROGRESS",
             severity="warn",
-            message=f"{threshold} одинаковых вызовов {first_tool}. Измени запрос.",
+            message=f"{threshold} однотипных вызовов {first_tool} ({min_similarity:.0%} схожести). Измени запрос.",
             count=threshold,
-            detail={"tool": first_tool, "preview": first_preview[:100]},
+            detail={
+                "tool": first_tool,
+                "min_similarity": round(min_similarity, 4),
+                "threshold": similarity_threshold,
+                "preview": first_preview[:100],
+            },
         )
     return None
 
@@ -234,6 +263,7 @@ def run_all(
     session_id: str,
     budget_limit: float = 10.0,
     error_threshold: int = 3,
+    similarity_threshold: float = 0.85,
 ) -> List[Signal]:
     """Run all pattern detectors. Returns list of non-None signals.
 
@@ -242,6 +272,7 @@ def run_all(
         session_id: Session to scan.
         budget_limit: USD limit for budget detector.
         error_threshold: Error count for consecutive_errors detector.
+        similarity_threshold: Similarity ratio for no_progress detector (0.0-1.0).
 
     Returns:
         List of Signal objects, sorted by severity (critical first).
@@ -255,6 +286,8 @@ def run_all(
                 kwargs["budget_limit"] = budget_limit
             elif detector.__name__ in ("detect_consecutive_errors", "detect_no_progress"):
                 kwargs["threshold"] = error_threshold
+            if detector.__name__ == "detect_no_progress":
+                kwargs["similarity_threshold"] = similarity_threshold
             sig = detector(db_session, session_id, **kwargs)
             if sig:
                 signals.append(sig)
@@ -268,13 +301,14 @@ def best_signal(
     session_id: str,
     budget_limit: float = 10.0,
     error_threshold: int = 3,
+    similarity_threshold: float = 0.85,
 ) -> Optional[Signal]:
     """Return the most severe signal, or None.
 
     'critical' > 'warn' > 'info'. If multiple at same severity,
     returns the first one found.
     """
-    signals = run_all(db_session, session_id, budget_limit, error_threshold)
+    signals = run_all(db_session, session_id, budget_limit, error_threshold, similarity_threshold)
     for s in signals:
         if s.severity == "critical":
             return s
