@@ -1,0 +1,9 @@
+name: governance
+version: 1.0.0
+description: >
+  Governance Coordinator — единственный владелец pre_tool_call.
+  Объединяет SBL (системная разведка) + Policy Engine (allow/deny/param rules)
+  + RTK (circuit breaker). Четыре режима: off → audit → simulate → enforce.
+author: "Autolycus Team"
+hooks:
+  - pre_tool_call
