@@ -271,6 +271,10 @@ class TestSearchContext:
 
     def test_search_finds_matching_turn(self, cw, tmp_path):
         """rg находит turn с искомым текстом."""
+        # Skip if rg not available
+        import subprocess, shutil
+        if not shutil.which("rg"):
+            pytest.skip("rg (ripgrep) not installed")
         cw.sync_turn("s", 0, "q", "nginx config file")
         cw.sync_turn("s", 1, "q", "docker setup")
         results = cw.search_context("s", "nginx")
@@ -279,6 +283,9 @@ class TestSearchContext:
 
     def test_search_returns_turn_number(self, cw, tmp_path):
         """Результаты содержат turn number."""
+        import subprocess, shutil
+        if not shutil.which("rg"):
+            pytest.skip("rg (ripgrep) not installed")
         cw.sync_turn("s", 42, "q", "unique_search_term_xyz")
         results = cw.search_context("s", "unique_search_term_xyz")
         assert len(results) > 0
