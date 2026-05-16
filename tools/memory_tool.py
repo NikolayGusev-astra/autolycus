@@ -29,6 +29,7 @@ import os
 import tempfile
 import time
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from hermes_constants import get_hermes_home
 from typing import Dict, Any, List, Optional
@@ -57,6 +58,81 @@ def get_memory_dir() -> Path:
     return get_hermes_home() / "memories"
 
 ENTRY_DELIMITER = "\n§\n"
+
+# ---------------------------------------------------------------------------
+# Temporal grouping — classify entries by age from their timestamps
+# ---------------------------------------------------------------------------
+
+_DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})")
+
+
+def _parse_entry_date(entry: str) -> str | None:
+    """Extract YYYY-MM-DD from entry prefix if present."""
+    m = _DATE_RE.match(entry.strip())
+    return m.group(1) if m else None
+
+
+def _days_ago(date_str: str) -> int | None:
+    """Return whole days between date_str and today, or None if unparseable."""
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        return (datetime.now().date() - dt.date()).days
+    except (ValueError, TypeError):
+        return None
+
+
+def _age_category(days: int) -> str:
+    """Return category header for a given age in days."""
+    if days == 0:
+        return "📅 СЕГОДНЯ"
+    elif days == 1:
+        return "📅 ВЧЕРА"
+    elif days <= 7:
+        return f"📅 {days} ДНЕЙ НАЗАД"
+    elif days <= 30:
+        return f"📅 {days} ДНЕЙ НАЗАД — ⚠️ МОЖЕТ БЫТЬ НЕАКТУАЛЬНО"
+    else:
+        return f"📅 СТАРОЕ ({days} дн.) — ⚠️ МОЖЕТ БЫТЬ НЕАКТУАЛЬНО"
+
+
+def _group_by_age(entries: list[str]) -> list[tuple[str, list[str]]]:
+    """
+    Group entries by age category.
+
+    Returns list of (header, entries_for_group) tuples, ordered from
+    freshest to oldest. Entries without a parseable timestamp go to
+    the last group with header "📅 ДАТА НЕИЗВЕСТНА".
+    """
+    if not entries:
+        return []
+
+    groups: dict[str, list[str]] = {}
+    unknown: list[str] = []
+
+    for entry in entries:
+        date_str = _parse_entry_date(entry)
+        if date_str:
+            days = _days_ago(date_str)
+            if days is not None:
+                header = _age_category(days)
+                groups.setdefault(header, []).append(entry)
+                continue
+        unknown.append(entry)
+
+    # Sort groups by age (fresh first)
+    AGE_ORDER = ["СЕГОДНЯ", "ВЧЕРА", "НАЗАД"]
+    sorted_groups = sorted(
+        groups.items(),
+        key=lambda kv: next(
+            (i for i, kw in enumerate(AGE_ORDER) if kw in kv[0]),
+            len(AGE_ORDER),  # older groups at end
+        ),
+    )
+
+    if unknown:
+        sorted_groups.append(("📅 ДАТА НЕИЗВЕСТНА", unknown))
+
+    return sorted_groups
 
 
 # ---------------------------------------------------------------------------
@@ -480,17 +556,39 @@ class MemoryStore:
         return resp
 
     def _render_block(self, target: str, entries: List[str]) -> str:
-        """Render a system prompt block with header and usage indicator."""
+        """Render a system prompt block with temporal grouping."""
         if not entries:
             return ""
 
         limit = self._char_limit(target)
-        content = ENTRY_DELIMITER.join(entries)
+        groups = _group_by_age(entries)
+        content = ""
+        for header, group_entries in groups:
+            content += f"\n{header}\n"
+            content += ENTRY_DELIMITER.join(group_entries)
+
+        content = content.strip()
         current = len(content)
         pct = min(100, int((current / limit) * 100)) if limit > 0 else 0
 
         if target == "user":
-            header = f"USER PROFILE (who the user is) [{pct}% — {current:,}/{limit:,} chars]"
+            # Add file mtime for user profile
+            user_path = self._path_for("user")
+            age_str = ""
+            try:
+                mtime = os.path.getmtime(user_path)
+                age_sec = time.time() - mtime
+                if age_sec < 60:
+                    age_str = f" (обновлено {int(age_sec)} сек. назад)"
+                elif age_sec < 3600:
+                    age_str = f" (обновлено {int(age_sec // 60)} мин. назад)"
+                elif age_sec < 86400:
+                    age_str = f" (обновлено {int(age_sec // 3600)} ч. назад)"
+                else:
+                    age_str = f" (обновлено {int(age_sec // 86400)} дн. назад)"
+            except OSError:
+                pass
+            header = f"USER PROFILE (who the user is) [{pct}% — {current:,}/{limit:,} chars]{age_str}"
         else:
             header = f"MEMORY (your personal notes) [{pct}% — {current:,}/{limit:,} chars]"
 

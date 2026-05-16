@@ -440,6 +440,7 @@ class TestMemoryToolDispatcher:
 
 
 # =========================================================================
+<<<<<<< HEAD
 # External drift guard (#26045)
 #
 # An external writer — patch tool, shell append, manual edit, or sister
@@ -650,3 +651,91 @@ class TestLoadTimeSnapshotSanitization:
         # Block marker appears exactly once, not nested
         assert snapshot.count("[BLOCKED:") == 1
         assert "Clean fact" in snapshot
+=======
+# Temporal awareness — _group_by_age
+# =========================================================================
+
+
+class TestGroupByAge:
+    """Проверка группировки записей по возрасту."""
+
+    def _make_entry(self, date_str: str, text: str = "test fact") -> str:
+        return f"{date_str}: {text}"
+
+    def test_today_only(self):
+        from tools.memory_tool import _group_by_age
+        today = "2026-05-16 15:00"
+        entries = [self._make_entry(today, "today fact")]
+        groups = _group_by_age(entries)
+        assert len(groups) == 1
+        header, group_entries = groups[0]
+        assert "СЕГОДНЯ" in header
+        assert "today fact" in group_entries[0]
+
+    def test_mixed_ages(self):
+        from tools.memory_tool import _group_by_age
+        entries = [
+            self._make_entry("2026-05-16 15:00", "today"),
+            self._make_entry("2026-05-13 10:00", "three_days_ago"),
+            self._make_entry("2026-04-01 12:00", "old"),
+        ]
+        groups = _group_by_age(entries)
+        headers = [h for h, _ in groups]
+        # Should have at least 2 groups: today + older
+        assert any("СЕГОДНЯ" in h for h in headers)
+        assert any("НАЗАД" in h or "СТАРОЕ" in h for h in headers)
+
+    def test_no_timestamp_falls_to_unknown(self):
+        from tools.memory_tool import _group_by_age
+        entries = ["entry without timestamp"]
+        groups = _group_by_age(entries)
+        assert len(groups) == 1
+        header, _ = groups[0]
+        assert "НЕИЗВЕСТНА" in header or "UNKNOWN" in header.upper()
+
+    def test_empty_entries(self):
+        from tools.memory_tool import _group_by_age
+        assert _group_by_age([]) == []
+
+
+class TestRenderBlockTemporal:
+    """Проверка что _render_block использует age grouping."""
+
+    def test_render_block_groups_by_age(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("tools.memory_tool.get_memory_dir", lambda: tmp_path)
+        store = MemoryStore(memory_char_limit=2000, user_char_limit=1000)
+        store.memory_entries = [
+            "2026-05-16 15:00: today fact",
+            "2026-05-13 10:00: old fact",
+        ]
+        block = store._render_block("memory", store.memory_entries)
+        assert "СЕГОДНЯ" in block
+        assert "НАЗАД" in block
+        assert "today fact" in block
+        assert "old fact" in block
+
+    def test_render_block_no_timestamp(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("tools.memory_tool.get_memory_dir", lambda: tmp_path)
+        store = MemoryStore(memory_char_limit=2000, user_char_limit=1000)
+        store.memory_entries = ["simple note"]
+        block = store._render_block("memory", store.memory_entries)
+        assert "НЕИЗВЕСТНА" in block or block.strip()
+
+
+class TestUserProfileTemporal:
+    """USER.md тоже должен иметь временную метку."""
+
+    def test_user_block_has_mtime(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("tools.memory_tool.get_memory_dir", lambda: tmp_path)
+        # Pre-create USER.md so it has a real mtime
+        user_file = tmp_path / "USER.md"
+        user_file.write_text("Николай: разработчик")
+        import time
+        time.sleep(0.01)  # ensure mtime is set
+        store = MemoryStore(memory_char_limit=2000, user_char_limit=1000)
+        store.user_entries = ["Николай: разработчик"]
+        block = store._render_block("user", store.user_entries)
+        assert "обновлено" in block
+        assert "сек" in block or "мин" in block or "ч." in block or "дн." in block
+
+>>>>>>> d35c3ed64 (feat: temporal awareness — MEMORY.md с группировкой по возрасту)
