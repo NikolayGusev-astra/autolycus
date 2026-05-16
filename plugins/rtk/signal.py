@@ -89,6 +89,7 @@ def detect_and_store(
     session_id: str,
     budget_limit: float | None = None,
     error_threshold: int | None = None,
+    similarity_threshold: float | None = None,
 ) -> Optional[Signal]:
     """Run pattern detection and store the best signal.
 
@@ -96,17 +97,20 @@ def detect_and_store(
     Thresholds are read from RTK config (YAML) with sensible defaults;
     explicit kwargs override the config.
     """
-    if budget_limit is None or error_threshold is None:
+    if budget_limit is None or error_threshold is None or similarity_threshold is None:
         from plugins.rtk import _load_config  # lazy, avoid circular
         cfg = _load_config()
         if budget_limit is None:
             budget_limit = cfg.get("budget_limit", 10.0)
         if error_threshold is None:
             error_threshold = cfg.get("error_threshold", 3)
+        if similarity_threshold is None:
+            similarity_threshold = cfg.get("similarity_threshold", 0.85)
     sig = pattern.best_signal(
         db_session, session_id,
         budget_limit=budget_limit,
         error_threshold=error_threshold,
+        similarity_threshold=similarity_threshold,
     )
     if sig:
         store(session_id, sig)
@@ -122,6 +126,7 @@ def pre_turn(
     session_id: str,
     budget_limit: float | None = None,
     error_threshold: int | None = None,
+    similarity_threshold: float | None = None,
 ) -> tuple[str, bool]:
     """Full pre-turn pipeline: detect → store → inject.
 
@@ -141,16 +146,18 @@ def pre_turn(
         return existing, halt
 
     # 2. Resolve thresholds from config if not explicitly given
-    if budget_limit is None or error_threshold is None:
+    if budget_limit is None or error_threshold is None or similarity_threshold is None:
         from plugins.rtk import _load_config  # lazy, avoid circular
         cfg = _load_config()
         if budget_limit is None:
             budget_limit = cfg.get("budget_limit", 10.0)
         if error_threshold is None:
             error_threshold = cfg.get("error_threshold", 3)
+        if similarity_threshold is None:
+            similarity_threshold = cfg.get("similarity_threshold", 0.85)
 
     # 3. Run detectors
-    sig = detect_and_store(db_session, session_id, budget_limit, error_threshold)
+    sig = detect_and_store(db_session, session_id, budget_limit, error_threshold, similarity_threshold)
 
     # 3. Return new signal
     inj = get_injection(session_id)

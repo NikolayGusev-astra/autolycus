@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -81,9 +82,14 @@ class TestFlushPending:
         assert count == 0
 
     def test_flush_single_record(self):
-        # Create a state.db with a matching message
-        db_path = "/tmp/test_rtk_flush.db"
-        conn = sqlite3.connect(db_path)
+        import sqlite3, json, time, pytest
+        from plugins.rtk import _PENDING_METADATA, flush_pending_metadata
+
+        # Create temp state.db with a matching message
+        db_path = Path("/tmp/test_rtk_flush.db")
+        if db_path.exists():
+            db_path.unlink()
+        conn = sqlite3.connect(str(db_path))
         conn.execute("""
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -104,17 +110,33 @@ class TestFlushPending:
         conn.commit()
         conn.close()
 
-        # Populate the buffer manually
-        from plugins.rtk import _PENDING_METADATA
+        # Populate the buffer
         meta = json.dumps({"persist_id": "p1", "chars_saved": 100, "savings_pct": 50.0})
         _PENDING_METADATA[("test-sess", "tc-1")] = meta
 
-        # FIXME: This test needs a way to override SessionDB's path
-        # For now, just verify the function doesn't crash
-        # The real integration is tested via e2e
+        # Patch SessionDB to use our temp DB
+        import hermes_state
+        original_path = hermes_state.DEFAULT_DB_PATH
+        hermes_state.DEFAULT_DB_PATH = Path(str(db_path))
 
-        # Clean pending buffer
-        _PENDING_METADATA.clear()
+        try:
+            flushed = flush_pending_metadata()
+            assert flushed == 1, f"Expected 1 flushed, got {flushed}"
+
+            # Verify the metadata was written
+            conn2 = sqlite3.connect(str(db_path))
+            row = conn2.execute(
+                "SELECT rtk_metadata FROM messages WHERE session_id=? AND tool_call_id=?",
+                ("test-sess", "tc-1"),
+            ).fetchone()
+            conn2.close()
+            assert row is not None
+            assert json.loads(row[0])["persist_id"] == "p1"
+            assert ("test-sess", "tc-1") not in _PENDING_METADATA  # buffer cleared
+        finally:
+            hermes_state.DEFAULT_DB_PATH = original_path
+            _PENDING_METADATA.clear()
+            db_path.unlink(missing_ok=True)
 
     def test_flush_nonexistent_tool_call_id(self):
         from plugins.rtk import _PENDING_METADATA
