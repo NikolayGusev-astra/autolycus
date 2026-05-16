@@ -179,7 +179,7 @@ class ContextWriter:
             Список dict'ов с path, preview, turn_number
         """
         session_dir = self._session_dir(session_id)
-        if not session_dir.exists():
+        if not session_dir.exists() or not any(True for _ in session_dir.glob("turn_*.md")):
             return []
         
         result = subprocess.run(

@@ -266,6 +266,9 @@ class TestSearchContext:
 
     def test_empty_session_returns_empty(self, cw, tmp_path):
         """Сессия без файлов → пустой результат."""
+        import shutil
+        if not shutil.which("rg"):
+            pytest.skip("rg (ripgrep) not installed")
         results = cw.search_context("nonexistent", "test")
         assert results == []
 
