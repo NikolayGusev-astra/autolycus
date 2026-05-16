@@ -67,8 +67,36 @@ class ContextWriter:
         self.wiki_dir = Path(wiki_dir) if wiki_dir else _get_wiki_dir()
         self.window_size = window_size
         self._active_windows: dict[str, list[int]] = {}  # session_id -> [turn_numbers]
+        self._rebuild_windows()
         logger.info("[ContextWriter] initialized: wiki=%s, window=%d turns",
                     self.wiki_dir, window_size)
+
+    def _rebuild_windows(self) -> None:
+        """Scan existing turn files on disk to restore active_windows.
+        
+        Called on init so that get_active_context() works across restarts.
+        Only relevant session dirs (containing turn_*.md files) are scanned.
+        """
+        ctx_dir = self.wiki_dir / "raw" / "context"
+        if not ctx_dir.exists():
+            return
+        for session_dir in sorted(ctx_dir.iterdir()):
+            if not session_dir.is_dir():
+                continue
+            turn_files = sorted(session_dir.glob("turn_*.md"))
+            if not turn_files:
+                continue
+            turn_nums = []
+            for f in turn_files:
+                try:
+                    turn_num = int(f.stem.split("_")[1])
+                    turn_nums.append(turn_num)
+                except (IndexError, ValueError):
+                    continue
+            if turn_nums:
+                turn_nums.sort()
+                sid = session_dir.name
+                self._active_windows[sid] = turn_nums[-self.window_size:]
     
     @property
     def _context_dir(self) -> Path:

@@ -15220,6 +15220,26 @@ class AIAgent:
                     messages.append(assistant_msg)
                     self._emit_interim_assistant_message(assistant_msg)
 
+                    # ── ContextWriter: пишем даже нетуловые turn'ы ──
+                    try:
+                        from plugins.memory.context_writer import ContextWriter
+                        if not hasattr(self, '_context_writer'):
+                            self._context_writer = ContextWriter()
+                        user_msg = ""
+                        for m in reversed(messages[:-1]):
+                            if m.get("role") == "user" and "\nUser:\n" not in m.get("content", ""):
+                                user_msg = m.get("content", "")[:1000]
+                                break
+                        self._context_writer.sync_turn(
+                            session_id=self.session_id or "default",
+                            turn_number=getattr(self, '_turn_counter', 0),
+                            user_msg=user_msg,
+                            assistant_msg=assistant_msg.get("content", "")[:2000],
+                        )
+                        self._turn_counter = getattr(self, '_turn_counter', 0) + 1
+                    except Exception:
+                        pass
+
                     # Close any open streaming display (response box, reasoning
                     # box) before tool execution begins.  Intermediate turns may
                     # have streamed early content that opened the response box;
