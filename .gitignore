@@ -72,3 +72,6 @@ website/static/api/skills-index.json
 models-dev-upstream/
 # Deploy directory — private infrastructure, not in public repo
 deploy/
+hermes_cli/tui_dist/*
+hermes_cli/scripts/
+docs/superpowers/*
