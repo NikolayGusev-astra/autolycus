@@ -79,8 +79,7 @@ Use any model you want — [Nous Portal](https://portal.nousresearch.com), [Open
 
 ### 📚 Кастомные навыки
 
-DevOps: kanban-orchestrator/worker, webhook-subscriptions, local-infra-audit, portable-toolchain, infrastructure-deployment, managed-infra-deploy, logpull, pmi-development, aldpro-*, tatneft-*, sosreport-diagnostics, astrasos-rust-audit, triple-memory  
-Reporting: tatneft-incident-report  
+DevOps: kanban-orchestrator/worker, webhook-subscriptions, local-infra-audit, portable-toolchain, infrastructure-deployment, managed-infra-deploy, logpull, pmi-development, aldpro-automation, sosreport-diagnostics, astrasos-rust-audit, triple-memory  
 Telegram: telegram-habr-content  
 Productivity: jira-api, lodestone-api
 
