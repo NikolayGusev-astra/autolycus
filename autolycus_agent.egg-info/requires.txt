@@ -109,6 +109,7 @@ mcp==1.26.0
 python-telegram-bot[webhooks]==22.6
 discord.py[voice]==2.7.1
 aiohttp==3.13.3
+brotlicffi==1.2.0.1
 slack-bolt==1.27.0
 slack-sdk==3.40.1
 qrcode==7.4.2
@@ -126,13 +127,6 @@ ptyprocess==0.7.0
 
 [pty:sys_platform == "win32"]
 pywinpty==2.0.15
-
-[rl]
-atroposlib @ git+https://github.com/NousResearch/atropos.git@c20c85256e5a45ad31edf8b7276e9c5ee1995a30
-tinker @ git+https://github.com/thinking-machines-lab/tinker.git@30517b667f18a3dfb7ef33fb56cf686d5820ba2b
-fastapi==0.133.1
-uvicorn[standard]==0.41.0
-wandb==0.25.1
 
 [slack]
 slack-bolt==1.27.0
@@ -172,11 +166,6 @@ numpy==2.4.3
 [web]
 fastapi==0.133.1
 uvicorn[standard]==0.41.0
-
-[yc-bench]
-
-[yc-bench:python_version >= "3.12"]
-yc-bench @ git+https://github.com/collinear-ai/yc-bench.git@bfb0c88062450f46341bd9a5298903fc2e952a5c
 
 [youtube]
 youtube-transcript-api==1.2.4
