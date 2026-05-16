@@ -38,18 +38,37 @@ def _load_cw_config() -> dict:
 
 
 def _find_rg() -> str | None:
-    """Ищет rg: PATH → ~/bin/ → ~/.local/bin/ → venv/bin/."""
-    # 1. PATH
+    """Ищет rg: plugins/tacops → portable/bin/ → PATH → ~/bin/ → venv/bin/."""
+    # 1. tacops (portable toolchain)
+    try:
+        from plugins.tacops import find_tool as _tacops_find
+        rg = _tacops_find("rg")
+        if rg and rg != "rg" and Path(rg).is_file():
+            return rg
+    except Exception:
+        pass
+
+    # 2. portable/bin/ (если tacops не загружен, но portable есть)
+    portable_candidates = [
+        Path.cwd() / "portable" / "bin" / "rg",
+        Path(__file__).resolve().parent.parent.parent / "portable" / "bin" / "rg",
+        Path.home() / ".autolycus" / "portable" / "bin" / "rg",
+    ]
+    for p in portable_candidates:
+        if p.is_file():
+            return str(p)
+
+    # 3. PATH
     rg = shutil.which("rg")
     if rg:
         return rg
-    # 2. Распространённые portable locations
+
+    # 4. Распространённые portable locations
     candidates = [
         os.path.expanduser("~/bin/rg"),
         os.path.expanduser("~/.local/bin/rg"),
         os.path.expanduser("~/ripgrep/rg"),
-        # venv (если запущено из venv)
-        str(Path(sys.prefix) / "bin" / "rg") if hasattr(__import__("sys"), "prefix") else None,
+        str(Path(sys.prefix) / "bin" / "rg"),
     ]
     for c in candidates:
         if c and os.path.isfile(c) and os.access(c, os.X_OK):
