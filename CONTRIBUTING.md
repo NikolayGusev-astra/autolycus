@@ -89,6 +89,7 @@ development environment on the same layout the CLI, updater, lazy dependency
 installer, gateway, and docs assume.
 
 ```bash
+<<<<<<< HEAD
 curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
 cd "${HERMES_HOME:-$HOME/.hermes}/hermes-agent"
 
@@ -117,6 +118,10 @@ packages.
 ```bash
 git clone https://github.com/NousResearch/hermes-agent.git
 cd hermes-agent
+=======
+git clone --recurse-submodules https://github.com/NikolayGusev-astra/autolycus.git
+cd autolycus
+>>>>>>> 1ae434535 (fix: замена NousResearch/hermes-agent на NikolayGusev-astra/autolycus как upstream)
 
 # Create venv with Python 3.11
 uv venv venv --python 3.11

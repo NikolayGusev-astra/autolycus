@@ -121,6 +121,7 @@ _UPDATE_CHECK_CACHE_SECONDS = 6 * 3600
 # (e.g. nix-built hermes — no local git history to count against).
 UPDATE_AVAILABLE_NO_COUNT = -1
 
+<<<<<<< HEAD
 _UPSTREAM_REPO_URL = "https://github.com/NousResearch/hermes-agent.git"
 _OFFICIAL_REPO_CANONICAL = "github.com/nousresearch/hermes-agent"
 
@@ -169,6 +170,9 @@ def _git_stdout(args: list[str], *, cwd: Path, timeout: int = 5) -> Optional[str
     if result.returncode != 0:
         return None
     return (result.stdout or "").strip()
+=======
+_UPSTREAM_REPO_URL = "https://github.com/NikolayGusev-astra/autolycus.git"
+>>>>>>> 1ae434535 (fix: замена NousResearch/hermes-agent на NikolayGusev-astra/autolycus как upstream)
 
 
 def _check_via_rev(local_rev: str) -> Optional[int]:
