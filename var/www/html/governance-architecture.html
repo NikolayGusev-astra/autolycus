@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Governance Coordinator — Architecture</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #0a0a0a;
+      color: #f0ece4;
+      display: flex; flex-direction: column; align-items: center;
+      min-height: 100vh; padding: 3rem 1rem;
+    }
+    .container {
+      max-width: 1000px; width: 100%;
+    }
+    .header {
+      text-align: center; margin-bottom: 2.5rem;
+    }
+    .header .badge {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.35rem 1rem;
+      border: 1px solid rgba(212, 168, 67, 0.15);
+      border-radius: 100px;
+      font-size: 0.7rem; color: #d4a843; letter-spacing: 2px;
+      text-transform: uppercase; margin-bottom: 1rem;
+    }
+    .header h1 {
+      font-size: 2rem; font-weight: 700; letter-spacing: 1px;
+      margin-bottom: 0.5rem;
+    }
+    .header h1 .gold { color: #d4a843; }
+    .header p {
+      color: #8a8578; font-size: 0.85rem; line-height: 1.6;
+      max-width: 600px; margin: 0 auto;
+    }
+    .diagram-box {
+      background: #0a0a0a;
+      border: 1px solid #1a1a1a;
+      border-radius: 24px;
+      overflow: visible;
+      box-shadow: 0 8px 60px rgba(0,0,0,0.4);
+    }
+    .diagram-box svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .footer {
+      text-align: center; margin-top: 2rem;
+      color: #8a8578; font-size: 0.75rem;
+    }
+    .footer a { color: #d4a843; text-decoration: none; }
+    .stats {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 0.75rem; margin-top: 2rem;
+    }
+    .stat-card {
+      background: #111; border: 1px solid #1a1a1a;
+      border-radius: 14px; padding: 1.25rem; text-align: center;
+    }
+    .stat-card .num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.5rem; color: #d4a843; font-weight: 500;
+    }
+    .stat-card .desc {
+      font-size: 0.75rem; color: #8a8578; margin-top: 0.25rem;
+    }
+    @media (max-width: 640px) {
+      .stats { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div class="badge">☿ Autolycus · Governance Coordinator</div>
+    <h1><span class="gold">Governance</span> Coordinator</h1>
+    <p>Единый владелец pre_tool_call — объединяет RTK (circuit breaker),<br>
+    SBL (системная разведка) и Policy Engine (allow/deny/param rules)<br>
+    в сквозной четырёхрежимный конвейер</p>
+  </div>
+
+  <div class="diagram-box">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 620" width="100%" height="auto" style="max-width:900px;margin:0 auto;">
+      <defs>
+        <linearGradient id="flowGrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#d4a843" stop-opacity="0.3"/>
+          <stop offset="100%" stop-color="#d4a843" stop-opacity="0.8"/>
+        </linearGradient>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="3" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <style>
+          .bg { fill: #0a0a0a; }
+          .card { fill: #111; stroke: #1a1a1a; stroke-width: 1.5; rx: 14; ry: 14; }
+          .card-glow { fill: #111; stroke: rgba(212,168,67,0.2); stroke-width: 1.5; rx: 14; ry: 14; }
+          .card-warn { fill: #111; stroke: #d4a843; stroke-width: 1.5; rx: 14; ry: 14; }
+          .card-critical { fill: #1a0808; stroke: #d43a3a; stroke-width: 1.5; rx: 14; ry: 14; }
+          .card-govern { fill: #111; stroke: #d4a843; stroke-width: 2; rx: 14; ry: 14; }
+          .title { font-family: 'Inter', sans-serif; font-size: 11px; fill: #8a8578; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
+          .label { font-family: 'Inter', sans-serif; font-size: 12px; fill: #f0ece4; font-weight: 500; }
+          .sub-label { font-family: 'Inter', sans-serif; font-size: 10px; fill: #8a8578; }
+          .mono { font-family: 'JetBrains Mono', monospace; font-size: 9px; fill: #d4a843; }
+          .mono-halt { font-family: 'JetBrains Mono', monospace; font-size: 9px; fill: #d43a3a; }
+          .link { fill: none; stroke: #2a2a2a; stroke-width: 2; }
+          .link-flow { fill: none; stroke: url(#flowGrad); stroke-width: 2; }
+          .link-warn { fill: none; stroke: #d4a843; stroke-width: 2; stroke-dasharray: 6 3; }
+          .link-halt { fill: none; stroke: #d43a3a; stroke-width: 2.5; stroke-dasharray: 4 3; }
+          .blocked { fill: #1a0808; stroke: #d43a3a; stroke-width: 2; rx: 14; ry: 14; }
+          .passed { fill: #081a0e; stroke: #3cb371; stroke-width: 2; rx: 14; ry: 14; }
+          .arrow { fill: #2a2a2a; }
+          .arrow-flow { fill: #d4a843; }
+        </style>
+      </defs>
+
+      <rect class="bg" width="900" height="620"/>
+
+      <text x="450" y="28" class="title" text-anchor="middle">Governance Coordinator — Архитектура</text>
+
+      <!-- TOP: Three input sources -->
+      <text x="450" y="52" class="sub-label" text-anchor="middle">Источники решений</text>
+
+      <!-- Source 1: RTK -->
+      <rect class="card-critical" x="30" y="65" width="230" height="65"/>
+      <text x="145" y="85" class="label" text-anchor="middle">🔴 RTK Signal</text>
+      <text x="145" y="100" class="sub-label" text-anchor="middle">Circuit breaker</text>
+      <text x="145" y="115" class="mono-halt" text-anchor="middle">should_halt → block ALL</text>
+
+      <!-- Source 2: SBL -->
+      <rect class="card-warn" x="335" y="65" width="230" height="65"/>
+      <text x="450" y="85" class="label" text-anchor="middle">🔍 SBL</text>
+      <text x="450" y="100" class="sub-label" text-anchor="middle">Системная разведка</text>
+      <text x="450" y="115" class="mono" text-anchor="middle">snapshot + deps</text>
+
+      <!-- Source 3: Policy -->
+      <rect class="card-warn" x="640" y="65" width="230" height="65"/>
+      <text x="755" y="85" class="label" text-anchor="middle">⚙️ Policy Engine</text>
+      <text x="755" y="100" class="sub-label" text-anchor="middle">Allow / Deny / Param rules</text>
+      <text x="755" y="115" class="mono" text-anchor="middle">evaluate() + audit</text>
+
+      <!-- Flow arrows down from sources -->
+      <path class="link-flow" d="M145,130 L145,160"/>
+      <circle class="arrow-flow" cx="145" cy="155" r="3"/>
+      <path class="link-flow" d="M450,130 L450,160"/>
+      <circle class="arrow-flow" cx="450" cy="155" r="3"/>
+      <path class="link-flow" d="M755,130 L755,160"/>
+      <circle class="arrow-flow" cx="755" cy="155" r="3"/>
+
+      <!-- CENTER: Governance Coordinator -->
+      <rect class="card-govern" x="270" y="165" width="360" height="110"/>
+      <text x="450" y="190" class="label" text-anchor="middle">📋 Governance Coordinator</text>
+      <text x="450" y="205" class="mono" text-anchor="middle">plugins/governance/__init__.py</text>
+
+      <!-- Internal pipeline inside coordinator -->
+      <rect class="card" x="285" y="215" width="80" height="28"/>
+      <text x="325" y="233" class="sub-label" text-anchor="middle">1. RTK check</text>
+      <rect class="card" x="375" y="215" width="80" height="28"/>
+      <text x="415" y="233" class="sub-label" text-anchor="middle">2. SBL deps</text>
+      <rect class="card" x="465" y="215" width="80" height="28"/>
+      <text x="505" y="233" class="sub-label" text-anchor="middle">3. Policy eval</text>
+      <rect class="card" x="555" y="215" width="60" height="28"/>
+      <text x="585" y="233" class="sub-label" text-anchor="middle">4. Merge</text>
+
+      <path class="link" d="M365,229 L375,229"/>
+      <circle class="arrow" cx="371" cy="229" r="2"/>
+      <path class="link" d="M455,229 L465,229"/>
+      <circle class="arrow" cx="461" cy="229" r="2"/>
+      <path class="link" d="M545,229 L555,229"/>
+      <circle class="arrow" cx="551" cy="229" r="2"/>
+
+      <text x="450" y="262" class="sub-label" text-anchor="middle">Режим: off → audit → simulate → enforce</text>
+
+      <!-- Flow out of coordinator -->
+      <path class="link-flow" d="M450,275 L450,310"/>
+      <circle class="arrow-flow" cx="450" cy="305" r="3"/>
+
+      <!-- MIDDLE: Decision node -->
+      <rect class="card-govern" x="350" y="315" width="200" height="50"/>
+      <text x="450" y="335" class="label" text-anchor="middle">Decision</text>
+      <text x="450" y="350" class="sub-label" text-anchor="middle">block / pass</text>
+
+      <!-- right: mode selector showing 4 modes -->
+      <rect class="card" x="600" y="315" width="240" height="150"/>
+      <text x="720" y="335" class="label" text-anchor="middle">4 режима</text>
+
+      <rect class="passed" x="615" y="348" width="210" height="22"/>
+      <text x="720" y="363" class="sub-label" text-anchor="middle" fill="#3cb371">off — всё пропускается</text>
+
+      <rect class="passed" x="615" y="375" width="210" height="22"/>
+      <text x="720" y="390" class="sub-label" text-anchor="middle" fill="#3cb371">audit — логируется, пропускается</text>
+
+      <rect class="card-warn" x="615" y="402" width="210" height="22"/>
+      <text x="720" y="417" class="sub-label" text-anchor="middle">simulate — блок + контекст</text>
+
+      <rect class="blocked" x="615" y="429" width="210" height="22"/>
+      <text x="720" y="444" class="sub-label" text-anchor="middle" fill="#d43a3a">enforce — жёсткая блокировка</text>
+
+      <!-- Pass path -->
+      <path class="link" d="M450,365 L320,365 L320,450 L100,450"/>
+      <circle class="arrow" cx="105" cy="450" r="3"/>
+      <rect class="passed" x="30" y="435" width="70" height="30"/>
+      <text x="65" y="454" class="sub-label" text-anchor="middle" fill="#3cb371">✅ PASS</text>
+
+      <!-- Block path -->
+      <path class="link" d="M450,365 L450,400"/>
+      <rect class="blocked" x="30" y="490" width="240" height="50"/>
+      <text x="150" y="510" class="label" text-anchor="middle" fill="#d43a3a">🔴 BLOCK</text>
+      <text x="150" y="525" class="sub-label" text-anchor="middle" fill="#d43a3a">action: "block"</text>
+      <text x="150" y="538" class="mono-halt" text-anchor="middle">message: json {...}</text>
+      <circle class="arrow" cx="450" cy="409" r="3" fill="#2a2a2a"/>
+      <path class="link" d="M450,415 L450,480"/>
+      <circle class="arrow" cx="450" cy="475" r="3" fill="#2a2a2a"/>
+      <path class="link" d="M270,515 L240,515" stroke="#d43a3a" stroke-width="2"/>
+      <circle cx="245" cy="515" r="3" fill="#d43a3a"/>
+
+      <!-- BOTTOM: Pre-existing hooks -->
+      <rect class="card" x="370" y="485" width="160" height="55"/>
+      <text x="450" y="505" class="sub-label" text-anchor="middle">Затронутые файлы</text>
+      <text x="450" y="520" class="mono" text-anchor="middle">plugins/governance/</text>
+      <text x="450" y="533" class="mono" text-anchor="middle">plugins/ultra_governance/</text>
+
+      <rect class="card" x="590" y="490" width="220" height="50"/>
+      <text x="700" y="510" class="sub-label" text-anchor="middle">Удалён дубль RTK</text>
+      <text x="700" y="525" class="mono" text-anchor="middle" fill="#d43a3a">ultra-governance/rtk.py</text>
+
+      <rect class="card" x="370" y="550" width="160" height="45"/>
+      <text x="450" y="568" class="sub-label" text-anchor="middle">pre_tool_call убран из</text>
+      <text x="450" y="582" class="mono" text-anchor="middle">SBL + ultra-governance</text>
+
+      <!-- Legend -->
+      <rect x="30" y="555" width="260" height="50" fill="#111" stroke="#1a1a1a" stroke-width="1.5" rx="14"/>
+      <text x="160" y="575" class="title" text-anchor="middle">Условные обозначения</text>
+      <rect x="45" y="585" width="16" height="10" fill="#081a0e" stroke="#3cb371" stroke-width="1" rx="3"/>
+      <text x="68" y="594" class="sub-label">Pass</text>
+      <rect x="120" y="585" width="16" height="10" fill="#1a0808" stroke="#d43a3a" stroke-width="1" rx="3"/>
+      <text x="143" y="594" class="sub-label">Block</text>
+      <rect x="195" y="585" width="16" height="10" fill="#111" stroke="#d4a843" stroke-width="1" rx="3"/>
+      <text x="218" y="594" class="sub-label">Simulate</text>
+    </svg>
+  </div>
+
+  <div class="stats">
+    <div class="stat-card">
+      <div class="num">4</div>
+      <div class="desc">Режима работы</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">3</div>
+      <div class="desc">Источника решений</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">6</div>
+      <div class="desc">Уровней защиты</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">277</div>
+      <div class="desc">Тестов пройдено</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <p>☿ Autolycus Agent · <a href="/">На главную</a> · <a href="/rtk-v2-architecture.html">RTK v2 Architecture</a></p>
+  </div>
+</div>
+</body>
+</html>

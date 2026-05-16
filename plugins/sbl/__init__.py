@@ -676,9 +676,10 @@ def _handle_sbl_snapshot(cmd_args: str = "") -> str:
 # ── Registration ───────────────────────────────────────────────────────────
 
 def register(ctx) -> None:
-    """Register SBL hooks: pre_tool_call + transform_tool_result + on_session_start."""
+    """Register SBL hooks: transform_tool_result + on_session_start.
+    pre_tool_call передан Governance Coordinator (plugins/governance/).
+    """
     try:
-        ctx.register_hook("pre_tool_call", _on_pre_tool_call)
         ctx.register_hook("transform_tool_result", _on_transform_tool_result)
         ctx.register_hook("on_session_start", _on_session_start)
         ctx.register_command(

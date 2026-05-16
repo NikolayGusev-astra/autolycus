@@ -1,0 +1,38 @@
+name: ultra-governance
+version: 1.0.0
+description: >
+  Tool Policy Engine + RTK Filter — pre-dispatch governance (audit/simulate/enforce)
+  and post-execution output optimization (head/tail/repeat compression) for tool calls.
+  Ported from concepts in the Hermes Agent Ultra Rust rewrite by sheawinkler.
+author: "Autolycus Team (port from sheawinkler/hermes-agent-ultra)"
+hooks:
+  - pre_tool_call
+  - post_tool_call
+  - transform_tool_result
+  - on_session_start
+config:
+  policy:
+    preset: balanced   # strict | balanced | dev (applied first, overridable)
+    mode: audit        # off | audit | simulate | enforce (overrides preset)
+    allow_tools: []
+    deny_tools:
+      - "dangerous_shell"
+      - "wipe_disk"
+    max_param_bytes: 4096
+    param_blocklist:
+      - pattern: "rm -rf /"
+        tool: "terminal"
+      - pattern: "shutdown"
+        tool: "terminal"
+      - pattern: "poweroff"
+        tool: "terminal"
+      - pattern: "reboot"
+        tool: "terminal"
+      - pattern: "format"
+        tool: "terminal"
+  rtk:
+    enabled: true
+    head_chars: 2000
+    tail_chars: 1000
+    min_repeat_lines: 5
+    max_output_chars: 10000
