@@ -185,8 +185,8 @@ class TestTransformToolResult:
 
 class TestBoundedBuffer:
     def test_no_eviction_when_under_limit(self):
-        from plugins.rtk import _PENDING_METADATA, _PENDING_METADATA_MAX, _evict_pending_metadata
-        assert _PENDING_METADATA_MAX > 0
+        from plugins.rtk import _PENDING_METADATA, _get_pending_metadata_max, _evict_pending_metadata
+        assert _get_pending_metadata_max() > 0
         initial = len(_PENDING_METADATA)
         evicted = _evict_pending_metadata()
         assert evicted == 0
@@ -194,11 +194,11 @@ class TestBoundedBuffer:
         _PENDING_METADATA.clear()
 
     def test_eviction_when_over_limit(self):
-        from plugins.rtk import _PENDING_METADATA, _PENDING_METADATA_MAX, _evict_pending_metadata
-        # Fill buffer past max (use small max via monkeypatching)
+        from plugins.rtk import _PENDING_METADATA, _get_pending_metadata_max, _evict_pending_metadata
+        # Fill buffer past max (use small max via monkeypatching _get_pending_metadata_max)
         import pytest
         with pytest.MonkeyPatch.context() as mp:
-            mp.setattr("plugins.rtk._PENDING_METADATA_MAX", 10)
+            mp.setattr("plugins.rtk._get_pending_metadata_max", lambda: 10)
             # Add 15 entries
             for i in range(15):
                 _PENDING_METADATA[(f"sess-{i}", f"tc-{i}")] = f"meta-{i}"
@@ -214,10 +214,10 @@ class TestBoundedBuffer:
         _PENDING_METADATA.clear()
 
     def test_eviction_called_on_add(self):
-        from plugins.rtk import _PENDING_METADATA, _PENDING_METADATA_MAX, _evict_pending_metadata
+        from plugins.rtk import _PENDING_METADATA, _get_pending_metadata_max, _evict_pending_metadata
         import pytest
         with pytest.MonkeyPatch.context() as mp:
-            mp.setattr("plugins.rtk._PENDING_METADATA_MAX", 3)
+            mp.setattr("plugins.rtk._get_pending_metadata_max", lambda: 3)
             # Add 5 entries
             for i in range(5):
                 _PENDING_METADATA[(f"sess", f"tc-{i}")] = f"meta-{i}"
