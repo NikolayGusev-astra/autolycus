@@ -25,6 +25,60 @@ def _get_wiki_dir() -> Path:
     return wiki
 
 
+<<<<<<< HEAD
+=======
+def _load_cw_config() -> dict:
+    """Читает конфиг context_writer из config.yaml."""
+    try:
+        from hermes_cli.config import cfg_get
+        root = cfg_get("plugins", "context_writer", default={})
+        if isinstance(root, dict):
+            return root
+    except Exception:
+        pass
+    return {}
+
+
+def _find_rg() -> str | None:
+    """Ищет rg: plugins/tacops → portable/bin/ → PATH → ~/bin/ → venv/bin/."""
+    # 1. tacops (portable toolchain)
+    try:
+        from plugins.tacops import find_tool as _tacops_find
+        rg = _tacops_find("rg")
+        if rg and rg != "rg" and Path(rg).is_file():
+            return rg
+    except Exception:
+        pass
+
+    # 2. portable/bin/ (если tacops не загружен, но portable есть)
+    portable_candidates = [
+        Path.cwd() / "portable" / "bin" / "rg",
+        Path(__file__).resolve().parent.parent.parent / "portable" / "bin" / "rg",
+        Path.home() / ".autolycus" / "portable" / "bin" / "rg",
+    ]
+    for p in portable_candidates:
+        if p.is_file():
+            return str(p)
+
+    # 3. PATH
+    rg = shutil.which("rg")
+    if rg:
+        return rg
+
+    # 4. Распространённые portable locations
+    candidates = [
+        os.path.expanduser("~/bin/rg"),
+        os.path.expanduser("~/.local/bin/rg"),
+        os.path.expanduser("~/ripgrep/rg"),
+        str(Path(sys.prefix) / "bin" / "rg"),
+    ]
+    for c in candidates:
+        if c and os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    return None
+
+
+>>>>>>> 63e64287a (context_writer: integrate with tacops portable toolchain for rg)
 def _format_turn(turn_number: int, user_msg: str, assistant_msg: str,
                  tools: list[dict] | None = None) -> str:
     """Форматировать один turn для записи в файл."""
