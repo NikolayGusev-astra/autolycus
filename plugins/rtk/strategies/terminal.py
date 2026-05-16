@@ -12,7 +12,7 @@ Recovery link is injected at the end with the persist_id.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 # Patterns that indicate error/critical lines worth preserving anywhere
 _ERROR_PATTERNS = [
@@ -39,6 +39,7 @@ def compress(
     tail_chars: int = 1000,
     persist_id: str = "",
     tool_args: Dict[str, Any] | None = None,
+    config: Dict[str, Any] | None = None,
 ) -> Tuple[str, Dict[str, Any]]:
     """Compress terminal output: head + error extraction + tail.
 

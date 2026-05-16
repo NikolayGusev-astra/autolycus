@@ -87,13 +87,22 @@ def get_injection(session_id: str) -> str:
 def detect_and_store(
     db_session: Any,
     session_id: str,
-    budget_limit: float = 10.0,
-    error_threshold: int = 3,
+    budget_limit: float | None = None,
+    error_threshold: int | None = None,
 ) -> Optional[Signal]:
     """Run pattern detection and store the best signal.
 
     Returns the Signal if one was found and stored, None otherwise.
+    Thresholds are read from RTK config (YAML) with sensible defaults;
+    explicit kwargs override the config.
     """
+    if budget_limit is None or error_threshold is None:
+        from plugins.rtk import _load_config  # lazy, avoid circular
+        cfg = _load_config()
+        if budget_limit is None:
+            budget_limit = cfg.get("budget_limit", 10.0)
+        if error_threshold is None:
+            error_threshold = cfg.get("error_threshold", 3)
     sig = pattern.best_signal(
         db_session, session_id,
         budget_limit=budget_limit,
@@ -111,8 +120,8 @@ def detect_and_store(
 def pre_turn(
     db_session: Any,
     session_id: str,
-    budget_limit: float = 10.0,
-    error_threshold: int = 3,
+    budget_limit: float | None = None,
+    error_threshold: int | None = None,
 ) -> tuple[str, bool]:
     """Full pre-turn pipeline: detect → store → inject.
 
@@ -121,6 +130,8 @@ def pre_turn(
     should_halt=True → circuit breaker should stop the session.
 
     Call this at the start of each turn (before the LLM call).
+    Thresholds are read from RTK config (YAML) with sensible defaults;
+    explicit kwargs override the config.
     """
     # 1. Check for existing unread signal
     existing = get_injection(session_id)
@@ -129,7 +140,16 @@ def pre_turn(
         halt = data.get("should_halt", False) if data else False
         return existing, halt
 
-    # 2. Run detectors
+    # 2. Resolve thresholds from config if not explicitly given
+    if budget_limit is None or error_threshold is None:
+        from plugins.rtk import _load_config  # lazy, avoid circular
+        cfg = _load_config()
+        if budget_limit is None:
+            budget_limit = cfg.get("budget_limit", 10.0)
+        if error_threshold is None:
+            error_threshold = cfg.get("error_threshold", 3)
+
+    # 3. Run detectors
     sig = detect_and_store(db_session, session_id, budget_limit, error_threshold)
 
     # 3. Return new signal

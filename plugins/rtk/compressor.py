@@ -62,13 +62,16 @@ def compress(
 
     if tool_name == "terminal":
         return terminal.compress(text, head_chars=head, tail_chars=tail,
-                                 persist_id=persist_id, tool_args=tool_args)
+                                 persist_id=persist_id, tool_args=tool_args,
+                                 config=cfg)
     elif tool_name == "read_file":
         return read_file.compress(text, head_chars=head, tail_chars=tail,
-                                  persist_id=persist_id, tool_args=tool_args)
+                                  persist_id=persist_id, tool_args=tool_args,
+                                  config=cfg)
     elif tool_name == "search_files":
         return search_files.compress(text, head_chars=head, tail_chars=tail,
-                                     persist_id=persist_id, tool_args=tool_args)
+                                     persist_id=persist_id, tool_args=tool_args,
+                                     config=cfg)
     else:
         # Generic fallback
         compressed = _generic_head_tail(text, head_chars=head, tail_chars=tail,

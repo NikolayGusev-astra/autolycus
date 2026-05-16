@@ -41,7 +41,15 @@ _MIN_RESULT_CHARS = 500
 # In-memory buffer for deferred metadata writes (written to state.db later)
 # key: (session_id, tool_call_id), value: metadata JSON string
 _PENDING_METADATA: Dict[tuple, str] = {}
-_PENDING_METADATA_MAX = 500  # cap to prevent OOM on runaway loops
+_PENDING_METADATA_MAX: int = 500  # evaluated lazily after _load_config is defined
+
+
+def _get_pending_metadata_max() -> int:
+    """Return max pending metadata size, reading from config once per call."""
+    global _PENDING_METADATA_MAX
+    cfg = _load_config()
+    _PENDING_METADATA_MAX = max(90, cfg.get("pending_metadata_max", 500))
+    return _PENDING_METADATA_MAX
 
 
 def _evict_pending_metadata() -> int:
@@ -49,7 +57,7 @@ def _evict_pending_metadata() -> int:
     Returns number of evicted entries.
     """
     global _PENDING_METADATA
-    overflow = len(_PENDING_METADATA) - _PENDING_METADATA_MAX
+    overflow = len(_PENDING_METADATA) - _get_pending_metadata_max()
     if overflow <= 0:
         return 0
     # Evict oldest (FIFO)
@@ -89,12 +97,43 @@ _RTK_CLEANUP_SCHEMA = {
 
 
 def _load_config() -> Dict[str, Any]:
-    """Load RTK config from YAML with sensible defaults."""
+    """Load RTK config from YAML with sensible defaults.
+
+    All hardcoded thresholds are pulled from here — one place to tune.
+    Extend this dict when adding new tunables, don't add module-level constants.
+    """
     config = {
+        # Compression
         "enabled": True,
         "head_chars": 500,
         "tail_chars": 1000,
         "min_result_chars": 500,
+
+        # Pending metadata buffer (bounded to prevent OOM)
+        # Should be >= max_iterations × subagent multiplier
+        "pending_metadata_max": 500,
+
+        # Terminal strategy
+        "terminal_overhead": 200,         # chars: truncation note + error header
+        "terminal_max_error_lines": 20,   # max error lines to extract
+        "terminal_middle_min": 100,        # min middle chars to note truncation
+
+        # Read file strategy
+        "read_file_context_window": 2000,  # lines before/after requested section
+
+        # Search files strategy
+        "search_max_detail_matches": 50,       # max matches before directory grouping
+        "search_max_context_per_match": 120,   # max chars per match line
+
+        # Pattern detection
+        "error_threshold": 3,       # consecutive errors → critical
+        "tool_loop_window": 6,      # window for tool loop detection
+        "no_progress_threshold": 3, # identical calls → warning
+        "budget_limit": 10.0,       # USD before critical signal
+        "budget_warning_pct": 0.8,  # fraction of budget before warning
+
+        # Eviction
+        "max_age_days": 30,  # cache file cleanup threshold
     }
     try:
         from hermes_cli.config import cfg_get
@@ -236,8 +275,12 @@ def _handle_rtk_recover(persist_id: str, **_: Any) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _handle_rtk_cleanup(max_age_days: int = 30, **_: Any) -> str:
-    """Handle rtk_cleanup tool call — remove old cache files."""
+def _handle_rtk_cleanup(max_age_days: int | None = None, **_: Any) -> str:
+    """Handle rtk_cleanup tool call — remove old cache files.
+    Default max_age_days read from RTK config (YAML).
+    """
+    if max_age_days is None:
+        max_age_days = _load_config().get("max_age_days", 30)
     removed = store.cleanup(max_age_days=max_age_days)
     return json.dumps({
         "removed": removed,
