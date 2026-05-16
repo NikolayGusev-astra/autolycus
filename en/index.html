@@ -195,13 +195,13 @@
     <span class="logo-text">☿ Autolycus</span>
   </div>
   <div class="nav-links">
-    <a href="#features">Возможности</a>
+    <a href="#features">Features</a>
     <a href="https://github.com/NikolayGusev-astra/autolycus">GitHub</a>
     <a href="/rtk-v2-architecture.html">RTK v2</a>
     <a href="/governance-architecture.html" style="color:#d4a843;">Governance</a>
     <a href="/temporal-awareness-architecture.html">Temporal Awareness</a>
-    <a href="/en/index.html" style="color:#8a8578;">EN</a>
-    <a href="/" class="lang-switch" style="color:#d4a843;font-weight:600;">RU</a>
+    <a href="/en/index.html" class="lang-switch" style="color:#d4a843;font-weight:600;">EN</a>
+    <a href="/" style="color:#8a8578;">RU</a>
   </div>
 </nav>
 
@@ -218,11 +218,11 @@
         <span class="gradient-text">Enterprise AI Agent</span>
       </h1>
       <p>
-        Enterprise AI-агент на базе Hermes Agent. Оптимизирован для бизнеса,<br>
-        безопасности и on-premise развёртывания.
+        Enterprise AI agent based on Hermes Agent. Optimized for business,<br>
+        security, and on-premise deployment.
       </p>
       <div class="hero-buttons">
-        <a href="#install" class="btn btn-primary">Установить →</a>
+        <a href="#install" class="btn btn-primary">Install →</a>
         <a href="https://github.com/NikolayGusev-astra/autolycus" class="btn btn-glass">GitHub</a>
         <a href="/rtk-v2-architecture.html" class="btn btn-glass">RTK v2</a>
         <a href="/governance-architecture.html" class="btn btn-glass">Governance</a>
@@ -234,28 +234,28 @@
       <div class="glass-card">
         <div class="chat-mock">
           <div class="chat-msg user">
-            <div class="bubble">Проверь нагрузку на серверах</div>
+            <div class="bubble">Check server load</div>
             <div class="av user">П</div>
           </div>
           <div class="chat-msg ai">
             <div class="av ai">☿</div>
-            <div class="bubble">12 серверов. Средняя загрузка CPU 34%, пик 89% на app-03.</div>
+            <div class="bubble">12 servers. Average CPU load 34%, peak 89% on app-03.</div>
           </div>
           <div class="chat-msg user">
-            <div class="bubble">Заблокируй IP 185.220.101.x</div>
+            <div class="bubble">Block IP 185.220.101.x</div>
             <div class="av user">П</div>
           </div>
           <div class="chat-msg ai">
             <div class="av ai">☿</div>
-            <div class="bubble">IP заблокирован на всех серверах. +3 попытки за 10 минут в fail2ban.</div>
+            <div class="bubble">IP blocked on all servers. +3 attempts in 10 min via fail2ban.</div>
           </div>
           <div class="chat-msg user">
-            <div class="bubble">Обнови nginx на проде</div>
+            <div class="bubble">Update nginx on prod</div>
             <div class="av user">П</div>
           </div>
           <div class="chat-msg ai">
             <div class="av ai">☿</div>
-            <div class="bubble">Конфиг проверен, graceful reload. Сервисы без перерыва.</div>
+            <div class="bubble">Config checked, graceful reload. Zero downtime.</div>
           </div>
         </div>
       </div>
@@ -264,37 +264,37 @@
 </section>
 
 <section class="section" id="features">
-  <h2>✦ Возможности</h2>
+  <h2>✦ Features</h2>
   <div class="features-grid">
     <div class="feat-card">
       <div class="icon">⚕</div>
-      <h3>Безопасность</h3>
-      <p>Governance Coordinator — единый pre_tool_call: объединяет RTK circuit breaker, SBL разведку и Policy Engine в 4 режимах (off → audit → simulate → enforce).</p>
+      <h3>Security</h3>
+      <p>Governance Coordinator — unified pre_tool_call: combines RTK circuit breaker, SBL reconnaissance and Policy Engine in 4 modes (off → audit → simulate → enforce).</p>
     </div>
     <div class="feat-card">
       <div class="icon">✦</div>
-      <h3>Производительность</h3>
-      <p>RTK v2: сжимает вывод инструментов до 84%. Автоматически детектирует зацикливания, серийные ошибки и перерасход бюджета — при критических аномалиях останавливает сессию.</p>
+      <h3>Performance</h3>
+      <p>RTK v2: compresses tool output by 84%. Auto-detects infinite loops, serial errors, and budget overruns — stops the session on critical anomalies.</p>
     </div>
     <div class="feat-card">
       <div class="icon">☿</div>
       <h3>Enterprise-ready</h3>
-      <p>On-premise, white label, ClickHouse memory provider, полный аудит всех tool-вызовов.</p>
+      <p>On-premise, white label, ClickHouse memory provider, full audit of all tool calls.</p>
     </div>
     <div class="feat-card">
       <div class="icon">⚕</div>
-      <h3>Постоянная память</h3>
-      <p>findings_to_wiki + ContextWriter — агент помнит архитектуру после перезапуска.</p>
-      <p style="margin-top: 0.5rem; font-size: 0.85rem; color: #a09880;">Temporal Awareness — группировка записей по возрасту: СЕГОДНЯ, ВЧЕРА, N ДНЕЙ НАЗАД, СТАРОЕ. Каждая группа предупреждает об актуальности.</p>
+      <h3>Persistent Memory</h3>
+      <p>findings_to_wiki + ContextWriter — agent remembers architecture across restarts.</p>
+      <p style="margin-top: 0.5rem; font-size: 0.85rem; color: #a09880;">Temporal Awareness — groups entries by age: TODAY, YESTERDAY, N DAYS AGO, OLD. Each group warns about relevance.</p>
     </div>
     <div class="feat-card">
       <div class="icon">✦</div>
-      <h3>Все интеграции</h3>
-      <p>Telegram, email, API, Docker, Nginx, Xray — подключайте через плагины.</p>
+      <h3>All Integrations</h3>
+      <p>Telegram, email, API, Docker, Nginx, Xray — connect via plugins.</p>
     </div>
     <div class="feat-card">
       <div class="icon">☿</div>
-      <h3>Архитектура</h3>
+      <h3>Architecture</h3>
       <p><a href="/rtk-v2-architecture.html" style="color:var(--ac-amber);text-decoration:none;">RTK v2 →</a><br>
       <a href="/governance-architecture.html" style="color:var(--ac-amber);text-decoration:none;">Governance Coordinator →</a></p>
     </div>
@@ -303,8 +303,8 @@
 
 <section class="cta" id="install">
   <div class="cta-box">
-    <h2>☿ Начать работу</h2>
-    <p>Одна команда — и ваш AI-агент работает на сервере.</p>
+    <h2>☿ Get Started</h2>
+    <p>One command — your AI agent is running on the server.</p>
     <div class="install-cmd">
       <span class="prompt">$</span>
       <code>curl -fsSL https://autolycus-agent.ru/install.sh | bash</code>
@@ -313,7 +313,7 @@
 </section>
 
 <footer>
-  <p>☿ Autolycus Agent</p>
+  <p>☿ Autolycus Agent · <a href="https://gusevnikolay.ru">gusevnikolay.ru</a></p>
   <p class="mit">Based on Hermes Agent by Nous Research · MIT License</p>
 </footer>
 

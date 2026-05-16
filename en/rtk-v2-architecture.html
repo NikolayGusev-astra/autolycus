@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RTK v2 — Architecture</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #0a0a0a;
+      color: #f0ece4;
+      display: flex; flex-direction: column; align-items: center;
+      min-height: 100vh; padding: 3rem 1rem;
+    }
+    .container {
+      max-width: 1000px; width: 100%;
+    }
+    .header {
+      text-align: center; margin-bottom: 2.5rem;
+    }
+    .header .badge {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.35rem 1rem;
+      border: 1px solid rgba(212, 168, 67, 0.15);
+      border-radius: 100px;
+      font-size: 0.7rem; color: #d4a843; letter-spacing: 2px;
+      text-transform: uppercase; margin-bottom: 1rem;
+    }
+    .header h1 {
+      font-size: 2rem; font-weight: 700; letter-spacing: 1px;
+      margin-bottom: 0.5rem;
+    }
+    .header h1 .gold { color: #d4a843; }
+    .header p {
+      color: #8a8578; font-size: 0.85rem; line-height: 1.6;
+      max-width: 600px; margin: 0 auto;
+    }
+    .diagram-box {
+      background: #0a0a0a;
+      border: 1px solid #1a1a1a;
+      border-radius: 24px;
+      overflow: hidden;
+      box-shadow: 0 8px 60px rgba(0,0,0,0.4);
+    }
+    .diagram-box svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .footer {
+      text-align: center; margin-top: 2rem;
+      color: #8a8578; font-size: 0.75rem;
+    }
+    .footer a { color: #d4a843; text-decoration: none; }
+    .stats {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 0.75rem; margin-top: 2rem;
+    }
+    .stat-card {
+      background: #111; border: 1px solid #1a1a1a;
+      border-radius: 14px; padding: 1.25rem; text-align: center;
+    }
+    .stat-card .num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.5rem; color: #d4a843; font-weight: 500;
+    }
+    .stat-card .desc {
+      font-size: 0.75rem; color: #8a8578; margin-top: 0.25rem;
+    }
+    @media (max-width: 640px) {
+      .stats { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div class="badge">☿ Autolycus · RTK v2</div>
+    <div style="display:flex;gap:0.75rem;justify-content:center;margin-bottom:0.75rem;">
+      <a href="/" style="color:#8a8578;">RU</a>
+      <span style="color:#8a8578;">|</span>
+      <a href="/en/" style="color:#d4a843;font-weight:600;">EN</a>
+    </div>
+    <h1><span class="gold">Reduced Token Kernel</span> v2</h1>
+    <p>Compression, anomaly detection, and circuit breaker —<br>built into the agent loop, works seamlessly</p>
+  </div>
+
+  <div class="diagram-box">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" width="100%" height="auto" style="max-width:900px;margin:0 auto;">
+      <defs>
+        <linearGradient id="flowGrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#d4a843" stop-opacity="0.3"/>
+          <stop offset="100%" stop-color="#d4a843" stop-opacity="0.8"/>
+        </linearGradient>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="3" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <style>
+          .bg { fill: #0a0a0a; }
+          .card { fill: #111; stroke: #1a1a1a; stroke-width: 1.5; rx: 14; ry: 14; }
+          .card-glow { fill: #111; stroke: rgba(212,168,67,0.2); stroke-width: 1.5; rx: 14; ry: 14; }
+          .card-warn { fill: #111; stroke: #d4a843; stroke-width: 1.5; rx: 14; ry: 14; }
+          .card-critical { fill: #1a0808; stroke: #d43a3a; stroke-width: 1.5; rx: 14; ry: 14; }
+          .title { font-family: 'Inter', sans-serif; font-size: 11px; fill: #8a8578; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
+          .label { font-family: 'Inter', sans-serif; font-size: 12px; fill: #f0ece4; font-weight: 500; }
+          .sub-label { font-family: 'Inter', sans-serif; font-size: 10px; fill: #8a8578; }
+          .mono { font-family: 'JetBrains Mono', monospace; font-size: 9px; fill: #d4a843; }
+          .link { fill: none; stroke: #2a2a2a; stroke-width: 2; }
+          .link-flow { fill: none; stroke: url(#flowGrad); stroke-width: 2; }
+          .link-warn { fill: none; stroke: #d4a843; stroke-width: 2; stroke-dasharray: 6 3; }
+          .link-halt { fill: none; stroke: #d43a3a; stroke-width: 2.5; stroke-dasharray: 4 3; }
+          .arrow { fill: #2a2a2a; }
+          .arrow-flow { fill: #d4a843; }
+        </style>
+      </defs>
+
+      <rect class="bg" width="900" height="520"/>
+
+      <text x="450" y="28" class="title" text-anchor="middle">RTK v2 — Architecture</text>
+
+      <!-- LEFT: Agent Loop -->
+      <rect class="card-glow" x="30" y="45" width="240" height="155"/>
+      <text x="150" y="72" class="label" text-anchor="middle">Agent Loop</text>
+      <text x="150" y="88" class="sub-label" text-anchor="middle">run_agent.py</text>
+      <rect class="card" x="50" y="100" width="200" height="40"/>
+      <text x="150" y="125" class="label" text-anchor="middle">LLM API Call</text>
+      <rect class="card" x="50" y="148" width="200" height="40"/>
+      <text x="150" y="165" class="mono" text-anchor="middle">transform_tool_result</text>
+      <text x="150" y="178" class="sub-label" text-anchor="middle">(hook)</text>
+      <path class="link" d="M150,88 L150,100"/>
+      <path class="link" d="M150,140 L150,148"/>
+      <circle class="arrow" cx="150" cy="96" r="3"/>
+      <circle class="arrow" cx="150" cy="145" r="3"/>
+
+      <!-- MIDDLE: Compression Pipeline -->
+      <rect class="card" x="320" y="45" width="200" height="62"/>
+      <text x="420" y="65" class="label" text-anchor="middle">💾 store.py</text>
+      <text x="420" y="80" class="sub-label" text-anchor="middle">Full output → disk</text>
+      <text x="420" y="95" class="mono" text-anchor="middle">~/.autolycus/rtk-cache/</text>
+
+      <rect class="card" x="320" y="115" width="200" height="62"/>
+      <text x="420" y="135" class="label" text-anchor="middle">📦 compressor.py</text>
+      <text x="420" y="150" class="sub-label" text-anchor="middle">Default compression strategy</text>
+      <text x="420" y="165" class="mono" text-anchor="middle">head + errors + tail</text>
+
+      <rect class="card" x="320" y="185" width="200" height="62"/>
+      <text x="420" y="205" class="label" text-anchor="middle">📝 metadata.py</text>
+      <text x="420" y="220" class="sub-label" text-anchor="middle">Stats → state.db rtk_metadata</text>
+      <text x="420" y="235" class="mono" text-anchor="middle">Bounded buffer (500)</text>
+
+      <path class="link-flow" d="M420,107 L420,115"/>
+      <path class="link-flow" d="M420,177 L420,185"/>
+      <circle class="arrow-flow" cx="420" cy="112" r="3"/>
+      <circle class="arrow-flow" cx="420" cy="182" r="3"/>
+      <path class="link-flow" d="M250,168 L320,168"/>
+      <circle class="arrow-flow" cx="305" cy="168" r="3"/>
+      <path class="link-flow" d="M250,155 L275,155 L275,128 L320,128" fill="none" stroke="#d4a843" stroke-width="1.5" stroke-dasharray="4 2"/>
+      <circle class="arrow-flow" cx="268" cy="128" r="3"/>
+
+      <!-- RIGHT: Detection & Safety -->
+      <rect class="card-warn" x="570" y="45" width="300" height="92"/>
+      <text x="720" y="65" class="label" text-anchor="middle">🔍 pattern.py — Detectors</text>
+      <rect class="card" x="585" y="72" width="130" height="28"/>
+      <text x="650" y="90" class="sub-label" text-anchor="middle">3 consecutive errors → 🔴 halt</text>
+      <rect class="card" x="725" y="72" width="130" height="28"/>
+      <text x="790" y="90" class="sub-label" text-anchor="middle">Budget exceeded → 🔴 halt</text>
+      <rect class="card" x="585" y="103" width="130" height="26"/>
+      <text x="650" y="119" class="sub-label" text-anchor="middle">Infinite loop → ⚠ inject</text>
+      <rect class="card" x="725" y="103" width="130" height="26"/>
+      <text x="790" y="119" class="sub-label" text-anchor="middle">No progress → ⚠ inject</text>
+
+      <rect class="card-warn" x="570" y="145" width="300" height="62"/>
+      <text x="720" y="165" class="label" text-anchor="middle">⚡ signal.py — Injection</text>
+      <text x="720" y="180" class="sub-label" text-anchor="middle">Signal → kvstore → system prompt</text>
+      <text x="720" y="195" class="mono" text-anchor="middle">one-shot, auto-cleared</text>
+
+      <path class="link" d="M520,216 L520,230 L570,230 L570,120" fill="none" stroke="#2a2a2a" stroke-width="2"/>
+      <circle class="arrow" cx="565" cy="120" r="3"/>
+      <path class="link-flow" d="M720,137 L720,145"/>
+      <circle class="arrow-flow" cx="720" cy="141" r="3"/>
+
+      <path class="link-warn" d="M720,207 L720,260 L250,260 L250,205" fill="none"/>
+      <text x="485" y="253" class="mono" text-anchor="middle" font-size="8">⚠ signal in system prompt</text>
+      <circle cx="255" cy="255" r="3" fill="#d4a843"/>
+
+      <!-- BOTTOM: Circuit Breaker -->
+      <rect class="card-critical" x="320" y="275" width="200" height="62"/>
+      <text x="420" y="295" class="label" text-anchor="middle" fill="#f0ece4">🔴 Circuit Breaker</text>
+      <text x="420" y="310" class="sub-label" text-anchor="middle" fill="#d43a3a">_rtk_halt_requested = True</text>
+      <text x="420" y="325" class="mono" text-anchor="middle" fill="#d43a3a">Session stopped</text>
+
+      <rect class="card" x="320" y="345" width="200" height="45"/>
+      <text x="420" y="365" class="label" text-anchor="middle">💾 rtk_recover</text>
+      <text x="420" y="378" class="sub-label" text-anchor="middle">Full data recovery</text>
+
+      <rect class="card" x="320" y="398" width="200" height="45"/>
+      <text x="420" y="418" class="label" text-anchor="middle">🧹 rtk_cleanup</text>
+      <text x="420" y="431" class="sub-label" text-anchor="middle">GC old cache files (&gt;30d)</text>
+
+      <path class="link-halt" d="M520,146 L550,146 L550,306 L520,306" fill="none"/>
+      <text x="550" y="230" class="mono" text-anchor="middle" font-size="8" fill="#d43a3a">should_halt</text>
+
+      <rect class="card" x="570" y="275" width="300" height="50"/>
+      <text x="720" y="295" class="label" text-anchor="middle">📊 monitor.py</text>
+      <text x="720" y="310" class="sub-label" text-anchor="middle">Per-tool stats + export JSON</text>
+
+      <rect class="card" x="570" y="335" width="300" height="50"/>
+      <text x="720" y="355" class="label" text-anchor="middle">🗄️ kvstore.py</text>
+      <text x="720" y="370" class="sub-label" text-anchor="middle">session-scoped JSON storage</text>
+
+      <rect class="card" x="570" y="395" width="90" height="48"/>
+      <text x="615" y="412" class="mono" text-anchor="middle">terminal</text>
+      <text x="615" y="425" class="sub-label" text-anchor="middle">head+errors+tail</text>
+      <rect class="card" x="670" y="395" width="90" height="48"/>
+      <text x="715" y="412" class="mono" text-anchor="middle">read_file</text>
+      <text x="715" y="425" class="sub-label" text-anchor="middle">section+head+tail</text>
+      <rect class="card" x="770" y="395" width="90" height="48"/>
+      <text x="815" y="412" class="mono" text-anchor="middle">search_files</text>
+      <text x="815" y="425" class="sub-label" text-anchor="middle">group by directory</text>
+
+      <!-- Legend -->
+      <rect x="30" y="280" width="250" height="163" fill="#111" stroke="#1a1a1a" stroke-width="1.5" rx="14"/>
+      <text x="155" y="300" class="title" text-anchor="middle">Legend</text>
+      <path d="M50,318 L100,318" stroke="#d4a843" stroke-width="2"/>
+      <text x="110" y="322" class="sub-label">Compression (normal)</text>
+      <path d="M50,340 L100,340" stroke="#d4a843" stroke-width="2" stroke-dasharray="6 3"/>
+      <text x="110" y="344" class="sub-label">Signal in system prompt</text>
+      <path d="M50,362 L100,362" stroke="#d43a3a" stroke-width="2.5" stroke-dasharray="4 3"/>
+      <text x="110" y="366" class="sub-label" fill="#d43a3a">Circuit breaker (halt)</text>
+      <rect x="50" y="380" width="50" height="18" fill="#1a0808" stroke="#d43a3a" stroke-width="1" rx="6"/>
+      <text x="110" y="393" class="sub-label">Critical signal</text>
+
+      <path class="link-halt" d="M870,176 L890,176 L890,306 L520,306" fill="none"/>
+      <text x="710" y="250" class="mono" text-anchor="middle" font-size="8" fill="#d43a3a">should_halt</text>
+    </svg>
+  </div>
+
+  <div class="stats">
+    <div class="stat-card">
+      <div class="num">172</div>
+      <div class="desc">unit tests</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">84%</div>
+      <div class="desc">avg token savings</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">500</div>
+      <div class="desc">bounded buffer (entries)</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">4</div>
+      <div class="desc">anomaly detectors</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <p>☿ Autolycus Agent · <a href="https://autolycus-agent.ru">autolycus-agent.ru</a> · <a href="https://gusevnikolay.ru">gusevnikolay.ru</a></p>
+  </div>
+</div>
+</body>
+</html>
