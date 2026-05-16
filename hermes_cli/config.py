@@ -1835,7 +1835,12 @@ DEFAULT_CONFIG = {
         # Set to a provider name to activate: "openviking", "mem0",
         # "hindsight", "holographic", "retaindb", "byterover".
         # Only ONE external provider is allowed at a time.
-        "provider": "",
+        # External memory provider plugin. Finds-to-wiki is the default —
+        # saves facts to MEMORY.md and detects structured research findings
+        # as wiki artifacts. Set to a different name to activate another
+        # provider: "openviking", "mem0", "hindsight", "holographic", etc.
+        # Only ONE external provider is allowed at a time.
+        "provider": "findings_to_wiki",
     },
 
     # Subagent delegation — override the provider:model used by delegate_task
@@ -2652,12 +2657,53 @@ DEFAULT_CONFIG = {
 
 
     # Config schema version - bump this when adding new required fields
+<<<<<<< HEAD
     "_config_version": 30,
+=======
+    "_config_version": 24,
+>>>>>>> eb6f34231 (feat: findings_to_wiki default-enabled + hipporag-lite in-the-box)
 
-    # Plugins enabled by default in Autolycus.
+    # Plugins enabled by default.
     # Standalone bundled plugins need to appear here to auto-load.
     "plugins": {
-        "enabled": ["ultra-governance"],
+        "enabled": ["sbl", "rtk"],
+
+        # findings-to-wiki: detect structured research in session output
+        # and save as wiki artifacts. Works alongside the memory provider.
+        "findings-to-wiki": {
+            "detect_patterns": {
+                "adr": [
+                    "(?i)\\b## (Статус|Контекст|Принятое решение|Decision|ADR)\\b",
+                ],
+                "architecture": [
+                    "(?i)\\b## (Architecture|Design|Pipeline|Module|Component|Service)\\b",
+                ],
+                "audit": [
+                    "(?i)\\b## (Audit|Code Review|Lint|Health.Check|Coverage)\\b",
+                ],
+                "infra": [
+                    "(?i)\\b## (Infrastructure|Deployment|Configuration|Setup)\\b",
+                ],
+                "memory": [
+                    "(?i)\\b## (Memory|Persistence|Storage|Session|State)\\b",
+                ],
+                "prism": [
+                    "(?i)\\b## (Findings|Conservation Law|Prism|Adversarial|Deepest finding)\\b",
+                ],
+                "red-team": [
+                    "(?i)\\b## (Red Team|Attack Vector|Threat Model|Risk|Security|Exploit|Injection|CRITICAL)\\b",
+                ],
+                "research": None,
+                "testing": [
+                    "(?i)\\b## (Test|Benchmark|Scenario|Reproduce|Verify)\\b",
+                ],
+            },
+        },
+
+        # context_writer: file-based turn history for active-window context.
+        "context_writer": {
+            "window_size": 10,
+        },
     },
 }
 
