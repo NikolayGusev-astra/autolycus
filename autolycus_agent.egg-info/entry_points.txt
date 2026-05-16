@@ -1,0 +1,5 @@
+[console_scripts]
+autolycus = autolycus_entry:main
+autolycus-acp = acp_adapter.entry:main
+autolycus-agent = run_agent:main
+hermes = hermes_cli.main:main
