@@ -184,7 +184,7 @@ Type=simple
 WorkingDirectory=$INSTALL_DIR
 Environment=PATH=$VENV_DIR/bin:/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=$INSTALL_DIR/.env
-ExecStart=$VENV_DIR/bin/python -m hermes_cli.main gateway run --replace
+ExecStart=$VENV_DIR/bin/autolycus gateway run --replace
 Restart=on-failure
 RestartSec=5
 

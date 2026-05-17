@@ -732,3 +732,41 @@ class TestUserMessagePreviewConfig:
         preview = DEFAULT_CONFIG["display"]["user_message_preview"]
         assert preview["first_lines"] == 2
         assert preview["last_lines"] == 2
+
+
+class TestDefaultConfigProviderAndPlugins:
+    """Verify DEFAULT_CONFIG ships with findings_to_wiki enabled and plugin defaults."""
+
+    def test_memory_provider_default(self):
+        assert DEFAULT_CONFIG["memory"]["provider"] == "findings_to_wiki"
+
+    def test_plugins_enabled_default(self):
+        assert DEFAULT_CONFIG["plugins"]["enabled"] == ["sbl", "rtk"]
+
+    def test_findings_to_wiki_config(self):
+        fw = DEFAULT_CONFIG["plugins"].get("findings-to-wiki", {})
+        assert "detect_patterns" in fw
+        patterns = fw["detect_patterns"]
+        assert "prism" in patterns
+        assert "adr" in patterns
+        assert "architecture" in patterns
+        assert "research" in patterns
+        assert patterns["research"] is None
+
+    def test_context_writer_config(self):
+        cw = DEFAULT_CONFIG["plugins"].get("context_writer", {})
+        assert cw.get("window_size") == 10
+
+    def test_config_version_bumped(self):
+        assert DEFAULT_CONFIG["_config_version"] >= 24
+
+    def test_load_config_merges_defaults(self, tmp_path):
+        """load_config() без user-файла подхватывает новые поля."""
+        from unittest.mock import patch
+        from hermes_cli.config import load_config
+
+        with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path)}):
+            config = load_config()
+        assert config["memory"]["provider"] == "findings_to_wiki"
+        assert "findings-to-wiki" in config.get("plugins", {})
+        assert "context_writer" in config.get("plugins", {})

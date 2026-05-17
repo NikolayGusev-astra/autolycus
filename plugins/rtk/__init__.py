@@ -8,12 +8,16 @@ Architecture:
   2. Type-aware compression — per-tool strategy (compressor.py)
   3. Recovery — agent reads file if needed (rtk_recover tool)
   4. Measurement — per-tool aggregated stats (monitor.py)
+  5. Metadata — per-call compression stats in state.db (metadata.py)
+  6. Pattern detection — anomaly detection over tool history (pattern.py)
+  7. Signal injection — pre-turn warnings in system prompt (signal.py)
 
 Registered hooks:
   transform_tool_result  — save + compress tool outputs
 
 Registered tools:
   rtk_recover            — retrieve full data by persist_id
+  rtk_cleanup            — remove old cached files
 """
 
 from __future__ import annotations
@@ -21,9 +25,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time as time_module
 from typing import Any, Dict, Optional
 
-from plugins.rtk import compressor, monitor, store
+from plugins.rtk import compressor, metadata as rtk_metadata, monitor, store
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +37,36 @@ _STRINGIFIABLE = {"search_files", "terminal"}
 
 # Default thresholds for when to process
 _MIN_RESULT_CHARS = 500
+
+# In-memory buffer for deferred metadata writes (written to state.db later)
+# key: (session_id, tool_call_id), value: metadata JSON string
+_PENDING_METADATA: Dict[tuple, str] = {}
+_PENDING_METADATA_MAX: int = 500  # evaluated lazily after _load_config is defined
+
+
+def _get_pending_metadata_max() -> int:
+    """Return max pending metadata size, reading from config once per call."""
+    global _PENDING_METADATA_MAX
+    cfg = _load_config()
+    _PENDING_METADATA_MAX = max(90, cfg.get("pending_metadata_max", 500))
+    return _PENDING_METADATA_MAX
+
+
+def _evict_pending_metadata() -> int:
+    """Evict oldest entries when buffer exceeds max size.
+    Returns number of evicted entries.
+    """
+    global _PENDING_METADATA
+    overflow = len(_PENDING_METADATA) - _get_pending_metadata_max()
+    if overflow <= 0:
+        return 0
+    # Evict oldest (FIFO)
+    keys = list(_PENDING_METADATA.keys())[:overflow]
+    for k in keys:
+        del _PENDING_METADATA[k]
+    logger.debug("RTK: evicted %d pending metadata entries (buffer=%d)", overflow, len(_PENDING_METADATA))
+    return overflow
+
 
 _RTK_RECOVER_SCHEMA = {
     "type": "object",
@@ -44,6 +79,17 @@ _RTK_RECOVER_SCHEMA = {
     "required": ["persist_id"],
 }
 
+_RTK_CLEANUP_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "max_age_days": {
+            "type": "integer",
+            "description": "Remove cache files older than N days (default: 30)",
+            "default": 30,
+        },
+    },
+}
+
 
 # ---------------------------------------------------------------------------
 # Config
@@ -51,12 +97,44 @@ _RTK_RECOVER_SCHEMA = {
 
 
 def _load_config() -> Dict[str, Any]:
-    """Load RTK config from YAML with sensible defaults."""
+    """Load RTK config from YAML with sensible defaults.
+
+    All hardcoded thresholds are pulled from here — one place to tune.
+    Extend this dict when adding new tunables, don't add module-level constants.
+    """
     config = {
+        # Compression
         "enabled": True,
         "head_chars": 500,
         "tail_chars": 1000,
         "min_result_chars": 500,
+
+        # Pending metadata buffer (bounded to prevent OOM)
+        # Should be >= max_iterations × subagent multiplier
+        "pending_metadata_max": 500,
+
+        # Terminal strategy
+        "terminal_overhead": 200,         # chars: truncation note + error header
+        "terminal_max_error_lines": 20,   # max error lines to extract
+        "terminal_middle_min": 100,        # min middle chars to note truncation
+
+        # Read file strategy
+        "read_file_context_window": 2000,  # lines before/after requested section
+
+        # Search files strategy
+        "search_max_detail_matches": 50,       # max matches before directory grouping
+        "search_max_context_per_match": 120,   # max chars per match line
+
+        # Pattern detection
+        "error_threshold": 3,       # consecutive errors → critical
+        "similarity_threshold": 0.85,  # fuzzy match ratio for no-progress
+        "tool_loop_window": 6,      # window for tool loop detection
+        "no_progress_threshold": 3, # identical calls → warning
+        "budget_limit": 10.0,       # USD before critical signal
+        "budget_warning_pct": 0.8,  # fraction of budget before warning
+
+        # Eviction
+        "max_age_days": 30,  # cache file cleanup threshold
     }
     try:
         from hermes_cli.config import cfg_get
@@ -81,12 +159,16 @@ def transform_tool_result(
     tool_name: str = "",
     args: Optional[Dict[str, Any]] = None,
     result: Any = None,
+    session_id: str = "",
+    tool_call_id: str = "",
+    duration_ms: float = 0.0,
     **_: Any,
 ) -> Optional[str]:
-    """``transform_tool_result`` hook: save + compress tool output.
+    """``transform_tool_result`` hook: save + compress + metadata.
 
     Returns compressed string, or None to leave result unchanged.
     Full data is always persisted to disk — never destroyed.
+    Compression metadata is buffered and written to state.db lazily.
     """
     cfg = _load_config()
     if not cfg["enabled"]:
@@ -104,13 +186,16 @@ def transform_tool_result(
         return None
 
     # 1. Persist full result
+    _t0 = time_module.time()
     try:
         persist_id = store.save(result)
     except Exception as exc:
         logger.debug("RTK: persist failed for %s: %s", tool_name, exc)
         return None
+    _save_dur = (time_module.time() - _t0) * 1000
 
     # 2. Compress
+    _t1 = time_module.time()
     try:
         compressed, stats = compressor.compress(
             tool_name, result, tool_args=args,
@@ -119,9 +204,31 @@ def transform_tool_result(
     except Exception as exc:
         logger.debug("RTK: compress failed for %s: %s — returning raw", tool_name, exc)
         return result
+    _compress_dur = (time_module.time() - _t1) * 1000
 
     # 3. Record metrics
     monitor.record(tool_name, before=len(result), after=len(compressed))
+
+    # 4. Build metadata and buffer for later state.db write
+    try:
+        strategy = tool_name if tool_name in ("terminal", "read_file", "search_files") else "head_tail"
+        original_len = stats.get("original_len", len(result))
+        compressed_len = stats.get("compressed_len", len(compressed))
+        error = _detect_error(tool_name, result)
+        meta_json = rtk_metadata.build_metadata(
+            tool_name=tool_name,
+            persist_id=persist_id,
+            original_len=original_len,
+            compressed_len=compressed_len,
+            strategy=strategy,
+            error=error,
+            duration_ms=_save_dur + _compress_dur,
+        )
+        if session_id and tool_call_id:
+            _PENDING_METADATA[(session_id, tool_call_id)] = meta_json
+            _evict_pending_metadata()  # bounded buffer
+    except Exception as exc:
+        logger.debug("RTK: metadata build failed: %s", exc)
 
     if stats.get("chars_saved", 0) > 0:
         logger.debug(
@@ -131,6 +238,24 @@ def transform_tool_result(
         )
 
     return compressed
+
+
+def _detect_error(tool_name: str, result: str) -> bool:
+    """Quick heuristic: does the result look like an error?"""
+    if not result:
+        return False
+    lower = result[:500].lower()
+    if '"error"' in lower and '"exit_code": 0' not in lower:
+        return True
+    if tool_name == "terminal" and '"exit_code"' in result:
+        import json
+        try:
+            data = json.loads(result)
+            if isinstance(data, dict) and data.get("exit_code", 0) != 0:
+                return True
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +269,24 @@ def _handle_rtk_recover(persist_id: str, **_: Any) -> str:
     if data is None:
         return json.dumps({"error": f"Persist ID not found: {persist_id}"})
     return data
+
+
+# ---------------------------------------------------------------------------
+# rtk_cleanup tool
+# ---------------------------------------------------------------------------
+
+
+def _handle_rtk_cleanup(max_age_days: int | None = None, **_: Any) -> str:
+    """Handle rtk_cleanup tool call — remove old cache files.
+    Default max_age_days read from RTK config (YAML).
+    """
+    if max_age_days is None:
+        max_age_days = _load_config().get("max_age_days", 30)
+    removed = store.cleanup(max_age_days=max_age_days)
+    return json.dumps({
+        "removed": removed,
+        "max_age_days": max_age_days,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -163,5 +306,52 @@ def register(ctx) -> None:
         emoji="💾",
     )
 
+    ctx.register_tool(
+        name="rtk_cleanup",
+        toolset="default",
+        schema=_RTK_CLEANUP_SCHEMA,
+        handler=_handle_rtk_cleanup,
+        emoji="🧹",
+    )
+
     cfg = _load_config()
     logger.info("rtk filter loaded (enabled=%s)", cfg["enabled"])
+
+
+# ---------------------------------------------------------------------------
+# Pending metadata flush (called by pattern detector / signal)
+# ---------------------------------------------------------------------------
+
+
+def flush_pending_metadata() -> int:
+    """Write buffered metadata to state.db.
+
+    Called before pattern detection runs. Finds messages by
+    (session_id, tool_call_id) and updates their rtk_metadata column.
+
+    Returns:
+        Number of metadata records flushed.
+    """
+    import time as time_module  # noqa: F811 — re-import for local use
+    if not _PENDING_METADATA:
+        return 0
+
+    try:
+        from hermes_state import SessionDB
+        db = SessionDB()
+    except Exception as exc:
+        logger.debug("RTK: flush_pending_metadata: cannot open SessionDB: %s", exc)
+        return 0
+
+    flushed = 0
+    pending = list(_PENDING_METADATA.items())
+    for (sid, tcid), meta_json in pending:
+        try:
+            ok = rtk_metadata.attach_by_tool_call_id(db, sid, tcid, meta_json)
+            if ok:
+                del _PENDING_METADATA[(sid, tcid)]
+                flushed += 1
+        except Exception as exc:
+            logger.debug("RTK: flush failed for %s/%s: %s", sid, tcid, exc)
+
+    return flushed

@@ -197,6 +197,11 @@
   <div class="nav-links">
     <a href="#features">Возможности</a>
     <a href="https://github.com/NikolayGusev-astra/autolycus">GitHub</a>
+    <a href="/rtk-v2-architecture.html">RTK v2</a>
+    <a href="/governance-architecture.html" style="color:#d4a843;">Governance</a>
+    <a href="/temporal-awareness-architecture.html">Temporal Awareness</a>
+    <a href="/en/index.html" style="color:#8a8578;">EN</a>
+    <a href="/" class="lang-switch" style="color:#d4a843;font-weight:600;">RU</a>
   </div>
 </nav>
 
@@ -219,6 +224,9 @@
       <div class="hero-buttons">
         <a href="#install" class="btn btn-primary">Установить →</a>
         <a href="https://github.com/NikolayGusev-astra/autolycus" class="btn btn-glass">GitHub</a>
+        <a href="/rtk-v2-architecture.html" class="btn btn-glass">RTK v2</a>
+        <a href="/governance-architecture.html" class="btn btn-glass">Governance</a>
+        <a href="/temporal-awareness-architecture.html" class="btn btn-glass">Temporal Awareness</a>
       </div>
     </div>
 
@@ -261,22 +269,23 @@
     <div class="feat-card">
       <div class="icon">⚕</div>
       <h3>Безопасность</h3>
-      <p>SBL, sanitize pipeline, ultra-governance — четыре режима: от аудита до жёсткой блокировки.</p>
+      <p>Governance Coordinator — единый pre_tool_call: объединяет RTK circuit breaker, SBL разведку и Policy Engine в 4 режимах (off → audit → simulate → enforce).</p>
     </div>
     <div class="feat-card">
       <div class="icon">✦</div>
       <h3>Производительность</h3>
-      <p>Файловые операции до 33× быстрее. RTK-фильтр. Средняя экономия 84% токенов, все данные восстанавливаются.</p>
+      <p>RTK v2: сжимает вывод инструментов до 84%. Автоматически детектирует зацикливания, серийные ошибки и перерасход бюджета — при критических аномалиях останавливает сессию.</p>
     </div>
     <div class="feat-card">
       <div class="icon">☿</div>
       <h3>Enterprise-ready</h3>
-      <p>On-premise, white label, ClickHouse memory provider, полный аудит.</p>
+      <p>On-premise, white label, ClickHouse memory provider, полный аудит всех tool-вызовов.</p>
     </div>
     <div class="feat-card">
       <div class="icon">⚕</div>
       <h3>Постоянная память</h3>
       <p>findings_to_wiki + ContextWriter — агент помнит архитектуру после перезапуска.</p>
+      <p style="margin-top: 0.5rem; font-size: 0.85rem; color: #a09880;">Temporal Awareness — группировка записей по возрасту: СЕГОДНЯ, ВЧЕРА, N ДНЕЙ НАЗАД, СТАРОЕ. Каждая группа предупреждает об актуальности.</p>
     </div>
     <div class="feat-card">
       <div class="icon">✦</div>
@@ -285,8 +294,9 @@
     </div>
     <div class="feat-card">
       <div class="icon">☿</div>
-      <h3>Скорость</h3>
-      <p>Оптимизирован под 1CPU/1GB. Unload after use, malloc_trim(0) после каждого вызова.</p>
+      <h3>Архитектура</h3>
+      <p><a href="/rtk-v2-architecture.html" style="color:var(--ac-amber);text-decoration:none;">RTK v2 →</a><br>
+      <a href="/governance-architecture.html" style="color:var(--ac-amber);text-decoration:none;">Governance Coordinator →</a></p>
     </div>
   </div>
 </section>

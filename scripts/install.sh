@@ -1422,7 +1422,14 @@ copy_config_templates() {
     log_info "Setting up configuration files..."
 
     # Create ~/.hermes directory structure (config at top level, code in subdir)
-    mkdir -p "$HERMES_HOME"/{cron,sessions,logs,pairing,hooks,image_cache,audio_cache,memories,skills}
+    mkdir -p "$HERMES_HOME"/{cron,sessions,logs,pairing,hooks,image_cache,audio_cache,memories,skills,scripts,hipporag}
+
+    # Copy bundled scripts — hipporag-lite (knowledge graph search, no LLM)
+    if [ -f "$INSTALL_DIR/scripts/hipporag-lite.py" ]; then
+        cp "$INSTALL_DIR/scripts/hipporag-lite.py" "$HERMES_HOME/scripts/hipporag-lite.py"
+        chmod +x "$HERMES_HOME/scripts/hipporag-lite.py"
+        log_success "Installed hipporag-lite (TF-IDF knowledge graph)"
+    fi
 
     # Create .env at ~/.hermes/.env (top level, easy to find)
     if [ ! -f "$HERMES_HOME/.env" ]; then

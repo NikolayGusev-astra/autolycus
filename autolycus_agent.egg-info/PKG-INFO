@@ -1,0 +1,282 @@
+Metadata-Version: 2.4
+Name: autolycus-agent
+Version: 0.1.2
+Summary: Enterprise AI Assistant for Business
+Author: Autolycus Team
+License: MIT
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: openai==2.24.0
+Requires-Dist: python-dotenv==1.2.1
+Requires-Dist: fire==0.7.1
+Requires-Dist: httpx[socks]==0.28.1
+Requires-Dist: rich==14.3.3
+Requires-Dist: tenacity==9.1.4
+Requires-Dist: pyyaml==6.0.3
+Requires-Dist: ruamel.yaml==0.18.17
+Requires-Dist: requests==2.33.0
+Requires-Dist: jinja2==3.1.6
+Requires-Dist: pydantic==2.12.5
+Requires-Dist: prompt_toolkit==3.0.52
+Requires-Dist: croniter==6.0.0
+Requires-Dist: PyJWT[crypto]==2.12.1
+Requires-Dist: tzdata==2025.3; sys_platform == "win32"
+Requires-Dist: psutil==7.2.2
+Provides-Extra: anthropic
+Requires-Dist: anthropic==0.86.0; extra == "anthropic"
+Provides-Extra: exa
+Requires-Dist: exa-py==2.10.2; extra == "exa"
+Provides-Extra: firecrawl
+Requires-Dist: firecrawl-py==4.17.0; extra == "firecrawl"
+Provides-Extra: parallel-web
+Requires-Dist: parallel-web==0.4.2; extra == "parallel-web"
+Provides-Extra: fal
+Requires-Dist: fal-client==0.13.1; extra == "fal"
+Provides-Extra: edge-tts
+Requires-Dist: edge-tts==7.2.7; extra == "edge-tts"
+Provides-Extra: modal
+Requires-Dist: modal==1.3.4; extra == "modal"
+Provides-Extra: daytona
+Requires-Dist: daytona==0.155.0; extra == "daytona"
+Provides-Extra: vercel
+Requires-Dist: vercel==0.5.7; extra == "vercel"
+Provides-Extra: hindsight
+Requires-Dist: hindsight-client==0.6.1; extra == "hindsight"
+Provides-Extra: dev
+Requires-Dist: debugpy==1.8.20; extra == "dev"
+Requires-Dist: pytest==9.0.2; extra == "dev"
+Requires-Dist: pytest-asyncio==1.3.0; extra == "dev"
+Requires-Dist: pytest-xdist==3.8.0; extra == "dev"
+Requires-Dist: pytest-split==0.11.0; extra == "dev"
+Requires-Dist: mcp==1.26.0; extra == "dev"
+Requires-Dist: ty==0.0.21; extra == "dev"
+Requires-Dist: ruff==0.15.10; extra == "dev"
+Provides-Extra: messaging
+Requires-Dist: python-telegram-bot[webhooks]==22.6; extra == "messaging"
+Requires-Dist: discord.py[voice]==2.7.1; extra == "messaging"
+Requires-Dist: aiohttp==3.13.3; extra == "messaging"
+Requires-Dist: brotlicffi==1.2.0.1; extra == "messaging"
+Requires-Dist: slack-bolt==1.27.0; extra == "messaging"
+Requires-Dist: slack-sdk==3.40.1; extra == "messaging"
+Requires-Dist: qrcode==7.4.2; extra == "messaging"
+Provides-Extra: cron
+Provides-Extra: slack
+Requires-Dist: slack-bolt==1.27.0; extra == "slack"
+Requires-Dist: slack-sdk==3.40.1; extra == "slack"
+Requires-Dist: aiohttp==3.13.3; extra == "slack"
+Provides-Extra: matrix
+Requires-Dist: mautrix[encryption]==0.21.0; extra == "matrix"
+Requires-Dist: Markdown==3.10.2; extra == "matrix"
+Requires-Dist: aiosqlite==0.22.1; extra == "matrix"
+Requires-Dist: asyncpg==0.31.0; extra == "matrix"
+Requires-Dist: aiohttp-socks==0.11.0; extra == "matrix"
+Provides-Extra: cli
+Requires-Dist: simple-term-menu==1.6.6; extra == "cli"
+Provides-Extra: tts-premium
+Requires-Dist: elevenlabs==1.59.0; extra == "tts-premium"
+Provides-Extra: voice
+Requires-Dist: faster-whisper==1.2.1; extra == "voice"
+Requires-Dist: sounddevice==0.5.5; extra == "voice"
+Requires-Dist: numpy==2.4.3; extra == "voice"
+Provides-Extra: pty
+Requires-Dist: ptyprocess==0.7.0; sys_platform != "win32" and extra == "pty"
+Requires-Dist: pywinpty==2.0.15; sys_platform == "win32" and extra == "pty"
+Provides-Extra: honcho
+Requires-Dist: honcho-ai==2.0.1; extra == "honcho"
+Provides-Extra: mcp
+Requires-Dist: mcp==1.26.0; extra == "mcp"
+Provides-Extra: homeassistant
+Requires-Dist: aiohttp==3.13.3; extra == "homeassistant"
+Provides-Extra: sms
+Requires-Dist: aiohttp==3.13.3; extra == "sms"
+Provides-Extra: computer-use
+Requires-Dist: mcp==1.26.0; extra == "computer-use"
+Provides-Extra: acp
+Requires-Dist: agent-client-protocol==0.9.0; extra == "acp"
+Provides-Extra: bedrock
+Requires-Dist: boto3==1.42.89; extra == "bedrock"
+Provides-Extra: termux
+Requires-Dist: python-telegram-bot[webhooks]==22.6; extra == "termux"
+Requires-Dist: autolycus-agent[cron]; extra == "termux"
+Requires-Dist: autolycus-agent[cli]; extra == "termux"
+Requires-Dist: autolycus-agent[pty]; extra == "termux"
+Requires-Dist: autolycus-agent[mcp]; extra == "termux"
+Requires-Dist: autolycus-agent[honcho]; extra == "termux"
+Requires-Dist: autolycus-agent[acp]; extra == "termux"
+Provides-Extra: termux-all
+Requires-Dist: autolycus-agent[termux]; extra == "termux-all"
+Requires-Dist: autolycus-agent[google]; extra == "termux-all"
+Requires-Dist: autolycus-agent[homeassistant]; extra == "termux-all"
+Requires-Dist: autolycus-agent[sms]; extra == "termux-all"
+Requires-Dist: autolycus-agent[web]; extra == "termux-all"
+Provides-Extra: dingtalk
+Requires-Dist: dingtalk-stream==0.24.3; extra == "dingtalk"
+Requires-Dist: alibabacloud-dingtalk==2.2.42; extra == "dingtalk"
+Requires-Dist: qrcode==7.4.2; extra == "dingtalk"
+Provides-Extra: feishu
+Requires-Dist: lark-oapi==1.5.3; extra == "feishu"
+Requires-Dist: qrcode==7.4.2; extra == "feishu"
+Provides-Extra: google
+Requires-Dist: google-api-python-client==2.194.0; extra == "google"
+Requires-Dist: google-auth-oauthlib==1.3.1; extra == "google"
+Requires-Dist: google-auth-httplib2==0.3.1; extra == "google"
+Provides-Extra: youtube
+Requires-Dist: youtube-transcript-api==1.2.4; extra == "youtube"
+Provides-Extra: web
+Requires-Dist: fastapi==0.133.1; extra == "web"
+Requires-Dist: uvicorn[standard]==0.41.0; extra == "web"
+Provides-Extra: all
+Requires-Dist: autolycus-agent[cron]; extra == "all"
+Requires-Dist: autolycus-agent[cli]; extra == "all"
+Requires-Dist: autolycus-agent[dev]; extra == "all"
+Requires-Dist: autolycus-agent[pty]; extra == "all"
+Requires-Dist: autolycus-agent[mcp]; extra == "all"
+Requires-Dist: autolycus-agent[homeassistant]; extra == "all"
+Requires-Dist: autolycus-agent[sms]; extra == "all"
+Requires-Dist: autolycus-agent[acp]; extra == "all"
+Requires-Dist: autolycus-agent[google]; extra == "all"
+Requires-Dist: autolycus-agent[web]; extra == "all"
+Requires-Dist: autolycus-agent[youtube]; extra == "all"
+Dynamic: license-file
+
+<p align="center">
+  <img src="assets/banner.png" alt="Autolycus Agent" width="100%">
+</p>
+
+# Autolycus Agent ☤ v0.1.2
+
+<p align="center">
+  <a href="https://github.com/NikolayGusev-astra/autolycus"><img src="https://img.shields.io/badge/Repo-autolycus-blue?style=for-the-badge" alt="Repository"></a>
+  <a href="https://github.com/NikolayGusev-astra/autolycus/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
+</p>
+
+**Enterprise AI Assistant.** Built on [Hermes Agent](https://github.com/NousResearch/hermes-agent) by Nous Research.  
+Оптимизирован для бизнес-автоматизации, безопасности и on-premise развёртывания.
+
+---
+
+## Возможности Autolycus vs vanilla Hermes Agent
+
+### 🔒 Безопасность
+
+| Компонент | Описание |
+|-----------|----------|
+| **SBL (System Boundary Layer)** | Детерминированный FHS-классификатор на уровне tool call dispatch. Перехватывает write_file/patch/terminal, классифицирует пути (SYSTEM/USER/UNKNOWN), снимает снапшот инфраструктуры, проверяет зависимости. Без LLM на critical path. |
+| **Ultra Governance** | Policy Engine (4 режима: off/audit/simulate/enforce) + Governance Coordinator — централизованное pre-dispatch управление. Deny-list, allow-list, param rules, max param bytes. |
+
+### 🚀 Производительность
+
+| Компонент | Описание |
+|-----------|----------|
+| **RTK v2 (Reduced Token Kernel)** | Недеструктивный компрессор tool output. Head/tail truncation, repeat compaction, type-aware per-tool стратегии. Сохранение ~84% токенов. Recovery через rtk_recover. Bounded buffer + circuit breaker + pre-turn integration. |
+| **ContextWriter** | Rebuild памяти: все-туры логирование, rg fallback, config.yaml window_size, shutdown hook, findings_to_wiki без LLM. |
+
+### 🏗️ Инфраструктура
+
+| Компонент | Описание |
+|-----------|----------|
+| **Tacops** | Terraform + Ansible CoPilot. Автоматическое развёртывание тестовых стендов (OpenNebula). Модели: StandSpec, VmSpec, BastionSpec. 8 Ansible фаз. Весь инструментарий в portable/ — без sudo. |
+| **Portable Toolchain** | Статические musl бинарники: terraform, fd, rg, gh, jq, yq. Виртуальное окружение: ansible-core, pyone. |
+
+### 🧩 Плагины
+
+- **Doc Session** — создание многостраничных документов через session-based запись по разделам
+- **Disk Cleanup** — автоматическая чистка временных файлов по правилам
+- **Teams Pipeline** — pipeline обработки Microsoft Teams встреч
+- **Kanban** — мультиагентная доска задач
+- **Spotify** — управление воспроизведением
+- **20+ model providers** (Alibaba, Arcee, Bedrock, Copilot, DeepSeek, Gemini, GMI, HuggingFace, Kilocode, Kimi, MiniMax, Nous, Novita, Nvidia, Ollama Cloud, OpenAI Codex, OpenCode Zen, OpenRouter, Qwen, StepFun, xAI, Xiaomi, ZAI)
+- **7 web search providers** (Brave, DuckDuckGo, Exa, Firecrawl, SearXNG, Tavily, Parallel)
+- **4+ platform adapters** (Google Chat, IRC, Line, Teams)
+
+### 📚 Кастомные навыки
+
+DevOps: kanban-orchestrator/worker, webhook-subscriptions, local-infra-audit, portable-toolchain, infrastructure-deployment, managed-infra-deploy, logpull, pmi-development, aldpro-automation, sosreport-diagnostics, astrasos-rust-audit, triple-memory  
+Telegram: telegram-habr-content  
+Productivity: jira-api, lodestone-api
+
+---
+
+## Установка
+
+```bash
+# Установка Node.js 22+ (требуется для некоторых функций)
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Клонирование
+git clone --recurse-submodules https://github.com/NikolayGusev-astra/autolycus.git
+cd autolycus
+
+# Установка Python зависимостей
+uv venv venv --python 3.11
+source venv/bin/activate
+uv pip install -e .
+
+# Установка portable инструментария (опционально)
+bash portable/install.sh
+```
+
+---
+
+## Changelog v0.1.2 (2026-05-15)
+
+### Новые возможности
+
+**SBL (System Boundary Layer)**
+- FHS path classification: SYSTEM/USER/UNKNOWN
+- Pre-write dependency snapshot (systemctl, ports, processes)
+- Service map with dependency lookup
+- Learned deps persistence между сессиями
+- Deep audit: FMC (Find, Map, Collect), /proc/comm, port/domain/cert extraction
+- Fix shell redirect blocking (/dev/null, &1, &2)
+- Многоуровневая архитектура: pre_tool_call + transform_tool_result + on_session_start
+
+**Ultra Governance**
+- Policy Engine: 4 режима (off/audit/simulate/enforce)
+- Governance Coordinator — единый pre_tool_call хук
+- Deny-list, allow-list, param rules, max param bytes
+- 18 E2E тестов с реальной политикой + SBL классификацией
+
+**RTK v2**
+- Недеструктивный компрессор (сохранение полных данных, recovery через rtk_recover)
+- Bounded buffer + circuit breaker
+- Pre-turn integration + metadata tracking
+- Pattern detection: CONSECUTIVE_ERRORS, TOOL_LOOP, BUDGET_EXCEEDED, NO_PROGRESS
+- Signal injection в system prompt
+- Двухуровневая конфигурация: YAML overrides + dynamic thresholds
+- 56 тестов, 31/31 pass
+
+**Tacops**
+- Terraform + Ansible CoPilot: stand.py, terraform.py, ansible.py, orchestrator.py
+- OpenNebula клиент (XML-RPC через pyone)
+- 8 Ansible фаз: bastion → infrastructure → aldpro → keycloak → external_users → keycloak_apps → smartcards → smartcard_test
+- Portable toolchain: terraform, ansible-core, pyone, fd, rg, gh, jq, yq
+- Модели: StandSpec, VmSpec, BastionSpec, NetworkSpec, Credentials
+
+**Doc Session**
+- Многостраничные документы через разделы (file_doc_create/write/finalize)
+- Три уровня защиты write_file для больших документов
+- Универсальный 12K порог блокировки
+
+**ContextWriter**
+- Rebuild: все-туры логирование, rg fallback, config.yaml window_size
+- Shutdown hook для корректного завершения
+- findings_to_wiki без LLM вызова
+- Интеграция с portable toolchain
+
+### Исправления
+- max_tokens:4096 cap removed — позволял output truncation на больших ответах
+- SBL shell redirect blocking (/dev/null, &1, &2)
+- RTK не-деструктивное сжатие с recovery
+- Doc session универсальный порог блокировки
+- Upstream URL: NousResearch → autolycus (для корректной работы autolycus update)
+
+### Обновления инфраструктуры
+- Все upstream-ссылки заменены на NikolayGusev-astra/autolycus
+- Создан docs/rtk-v2.md
+- Создан docs/autolycs/sbl-pmi.md
+- Создан docs/autolycs/ultra-governance.md
+- Обновлён docs/features.md
+- Обновлён CONTRIBUTING.md

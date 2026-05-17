@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Temporal Awareness — Architecture</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #0a0a0a;
+      color: #f0ece4;
+      display: flex; flex-direction: column; align-items: center;
+      min-height: 100vh; padding: 3rem 1rem;
+    }
+    .container {
+      max-width: 1000px; width: 100%;
+    }
+    .header {
+      text-align: center; margin-bottom: 2.5rem;
+    }
+    .header .badge {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.35rem 1rem;
+      border: 1px solid rgba(212, 168, 67, 0.15);
+      border-radius: 100px;
+      font-size: 0.7rem; color: #d4a843; letter-spacing: 2px;
+      text-transform: uppercase; margin-bottom: 1rem;
+    }
+    .header h1 {
+      font-size: 2rem; font-weight: 700; letter-spacing: 1px;
+      margin-bottom: 0.5rem;
+    }
+    .header h1 .gold { color: #d4a843; }
+    .header p {
+      color: #8a8578; font-size: 0.85rem; line-height: 1.6;
+      max-width: 600px; margin: 0 auto;
+    }
+    .diagram-box {
+      background: #0a0a0a;
+      border: 1px solid #1a1a1a;
+      border-radius: 24px;
+      overflow: hidden;
+      box-shadow: 0 8px 60px rgba(0,0,0,0.4);
+    }
+    .diagram-box svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .footer {
+      text-align: center; margin-top: 2rem;
+      color: #8a8578; font-size: 0.75rem;
+    }
+    .footer a { color: #d4a843; text-decoration: none; }
+    .stats {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 0.75rem; margin-top: 2rem;
+    }
+    .stat-card {
+      background: #111; border: 1px solid #1a1a1a;
+      border-radius: 14px; padding: 1.25rem; text-align: center;
+    }
+    .stat-card .num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.5rem; color: #d4a843; font-weight: 500;
+    }
+    .stat-card .desc {
+      font-size: 0.75rem; color: #8a8578; margin-top: 0.25rem;
+    }
+    @media (max-width: 640px) {
+      .stats { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div class="badge">☿ Autolycus · Memory</div>
+    <h1><span class="gold">Temporal Awareness</span></h1>
+    <p>Группировка persistent memory по возрасту записей —<br>СЕГОДНЯ, ВЧЕРА, N ДНЕЙ НАЗАД, СТАРОЕ</p>
+  </div>
+
+  <div class="diagram-box">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" width="100%" height="auto" style="max-width:900px;margin:0 auto;">
+      <defs>
+        <linearGradient id="flowGrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#d4a843" stop-opacity="0.3"/>
+          <stop offset="100%" stop-color="#d4a843" stop-opacity="0.8"/>
+        </linearGradient>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="3" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <style>
+          .bg { fill: #0a0a0a; }
+          .card { fill: #111; stroke: #1a1a1a; stroke-width: 1.5; rx: 14; ry: 14; }
+          .card-glow { fill: #111; stroke: rgba(212,168,67,0.2); stroke-width: 1.5; rx: 14; ry: 14; }
+          .card-warn { fill: #111; stroke: #d4a843; stroke-width: 1.5; rx: 14; ry: 14; }
+          .card-old { fill: #1a1212; stroke: #8a5a3a; stroke-width: 1.5; rx: 14; ry: 14; }
+          .title { font-family: 'Inter', sans-serif; font-size: 11px; fill: #8a8578; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
+          .label { font-family: 'Inter', sans-serif; font-size: 12px; fill: #f0ece4; font-weight: 500; }
+          .sub-label { font-family: 'Inter', sans-serif; font-size: 10px; fill: #8a8578; }
+          .mono { font-family: 'JetBrains Mono', monospace; font-size: 9px; fill: #d4a843; }
+          .link { fill: none; stroke: #2a2a2a; stroke-width: 2; }
+          .link-flow { fill: none; stroke: url(#flowGrad); stroke-width: 2; }
+          .arrow { fill: #2a2a2a; }
+          .arrow-flow { fill: #d4a843; }
+        </style>
+      </defs>
+
+      <rect class="bg" width="900" height="520"/>
+
+      <text x="450" y="28" class="title" text-anchor="middle">Temporal Awareness — Data Flow</text>
+
+      <!-- LEFT: Source -->
+      <rect class="card" x="30" y="45" width="240" height="80"/>
+      <text x="150" y="65" class="label" text-anchor="middle">MEMORY.md / USER.md</text>
+      <text x="150" y="80" class="sub-label" text-anchor="middle">На диске ~/.hermes/memories/</text>
+      <text x="150" y="95" class="mono" text-anchor="middle">§-delimited entries</text>
+      <text x="150" y="110" class="sub-label" text-anchor="middle">с префиксом YYYY-MM-DD HH:MM</text>
+
+      <!-- LEFT-BOTTOM: Load -->
+      <rect class="card" x="30" y="145" width="240" height="55"/>
+      <text x="150" y="165" class="label" text-anchor="middle">load_from_disk()</text>
+      <text x="150" y="180" class="sub-label" text-anchor="middle">Читает файл, делит по §</text>
+
+      <path class="link" d="M150,125 L150,145"/>
+      <circle class="arrow" cx="150" cy="140" r="3"/>
+
+      <!-- MIDDLE: Pipeline -->
+      <rect class="card-glow" x="330" y="45" width="240" height="45"/>
+      <text x="450" y="63" class="label" text-anchor="middle">_parse_entry_date()</text>
+      <text x="450" y="78" class="mono" text-anchor="middle">re.match(r"^(\d{4}-\d{2}-\d{2})")</text>
+
+      <rect class="card" x="330" y="100" width="240" height="45"/>
+      <text x="450" y="118" class="label" text-anchor="middle">_days_ago()</text>
+      <text x="450" y="133" class="mono" text-anchor="middle">today - date → int days</text>
+
+      <rect class="card-warn" x="330" y="155" width="240" height="45"/>
+      <text x="450" y="173" class="label" text-anchor="middle">_age_category()</text>
+      <text x="450" y="188" class="mono" text-anchor="middle">0→СЕГОДНЯ, 1→ВЧЕРА, ≤7→N ДНЕЙ, >7→СТАРОЕ</text>
+
+      <rect class="card" x="330" y="210" width="240" height="55"/>
+      <text x="450" y="230" class="label" text-anchor="middle">_group_by_age()</text>
+      <text x="450" y="245" class="sub-label" text-anchor="middle">Группирует entries по категориям</text>
+      <text x="450" y="258" class="sub-label" text-anchor="middle">Сортирует: свежие → старые</text>
+
+      <path class="link-flow" d="M450,90 L450,100"/>
+      <circle class="arrow-flow" cx="450" cy="96" r="3"/>
+      <path class="link-flow" d="M450,145 L450,155"/>
+      <circle class="arrow-flow" cx="450" cy="151" r="3"/>
+      <path class="link-flow" d="M450,200 L450,210"/>
+      <circle class="arrow-flow" cx="450" cy="206" r="3"/>
+
+      <path class="link-flow" d="M270,105 L330,105"/>
+      <circle class="arrow-flow" cx="318" cy="105" r="3"/>
+      <path class="link-flow" d="M270,80 L300,80 L300,60 L330,60" fill="none" stroke="#d4a843" stroke-width="1.5" stroke-dasharray="4 2"/>
+      <circle class="arrow-flow" cx="295" cy="60" r="3"/>
+
+      <!-- RIGHT: Output -->
+      <rect class="card-glow" x="620" y="45" width="250" height="90"/>
+      <text x="745" y="65" class="label" text-anchor="middle">_render_block()</text>
+      <text x="745" y="82" class="sub-label" text-anchor="middle">Форматирует группы с заголовками</text>
+      <text x="745" y="97" class="mono" text-anchor="middle">┌─ СЕГОДНЯ ───</text>
+      <text x="745" y="112" class="mono" text-anchor="middle">│ entry</text>
+      <text x="745" y="125" class="mono" text-anchor="middle">└─ N записей</text>
+
+      <rect class="card" x="620" y="155" width="250" height="55"/>
+      <text x="745" y="175" class="label" text-anchor="middle">format_for_system_prompt()</text>
+      <text x="745" y="190" class="sub-label" text-anchor="middle">Инжекция в system prompt</text>
+      <text x="745" y="205" class="sub-label" text-anchor="middle">перед каждым ответом агента</text>
+
+      <path class="link-flow" d="M570,230 L620,230 L620,145"/>
+      <circle class="arrow-flow" cx="608" cy="230" r="3"/>
+      <path class="link" d="M745,135 L745,155"/>
+      <circle class="arrow" cx="745" cy="150" r="3"/>
+
+      <path class="link-flow" d="M745,210 L745,260 L250,260 L250,200"/>
+      <circle class="arrow-flow" cx="255" cy="250" r="3"/>
+
+      <!-- BOTTOM: Age Categories -->
+      <rect class="card" x="30" y="275" width="180" height="45"/>
+      <text x="120" y="295" class="label" text-anchor="middle">СЕГОДНЯ (0 дней)</text>
+      <text x="120" y="310" class="sub-label" text-anchor="middle">Свежие записи</text>
+
+      <rect class="card" x="220" y="275" width="180" height="45"/>
+      <text x="310" y="295" class="label" text-anchor="middle">ВЧЕРА (1 день)</text>
+      <text x="310" y="310" class="sub-label" text-anchor="middle">Вчерашние записи</text>
+
+      <rect class="card-warn" x="410" y="275" width="180" height="45"/>
+      <text x="500" y="295" class="label" text-anchor="middle">N ДНЕЙ НАЗАД (2-7)</text>
+      <text x="500" y="310" class="sub-label" text-anchor="middle">Недельной давности</text>
+
+      <rect class="card-old" x="600" y="275" width="180" height="45"/>
+      <text x="690" y="295" class="label" text-anchor="middle">СТАРОЕ (&gt;7 дней)</text>
+      <text x="690" y="310" class="sub-label" text-anchor="middle">⚠ Может быть неактуально</text>
+
+      <rect class="card" x="30" y="335" width="180" height="45"/>
+      <text x="120" y="355" class="label" text-anchor="middle">ДАТА НЕИЗВЕСТНА</text>
+      <text x="120" y="370" class="sub-label" text-anchor="middle">Без префикса YYYY-MM-DD</text>
+
+      <!-- USER.md mtime -->
+      <rect class="card" x="410" y="335" width="370" height="55"/>
+      <text x="595" y="355" class="label" text-anchor="middle">USER.md — mtime профиля</text>
+      <text x="595" y="370" class="sub-label" text-anchor="middle">В заголовке: "USER PROFILE (who the user is)</text>
+      <text x="595" y="383" class="sub-label" text-anchor="middle">[X% — N/M chars] [Профиль: дд месяц, чч:мм]"</text>
+
+      <!-- Legend -->
+      <rect x="30" y="400" width="390" height="105" fill="#111" stroke="#1a1a1a" stroke-width="1.5" rx="14"/>
+      <text x="225" y="420" class="title" text-anchor="middle">Ключевые принципы</text>
+      <text x="50" y="440" class="sub-label">1. Read-time grouping — файл на диске не меняется</text>
+      <text x="50" y="456" class="sub-label">2. Delimiter: § — запись может быть многострочной</text>
+      <text x="50" y="472" class="sub-label">3. Frozen snapshot — inject при старте сессии, не mid-session</text>
+      <text x="50" y="488" class="sub-label">4. Порядок групп: СЕГОДНЯ → ВЧЕРА → N ДНЕЙ → СТАРОЕ → ДАТА НЕИЗВЕСТНА</text>
+      <text x="50" y="504" class="sub-label">5. 40 тестов — unit + integration, все проходят</text>
+
+      <rect x="460" y="400" width="410" height="105" fill="#111" stroke="#1a1a1a" stroke-width="1.5" rx="14"/>
+      <text x="665" y="420" class="title" text-anchor="middle">Защита от галлюцинаций</text>
+      <text x="480" y="440" class="sub-label">• Старые записи (>7 дн) — с предупреждением ⚠</text>
+      <text x="480" y="456" class="sub-label">• Агент видит возраст каждой группы</text>
+      <text x="480" y="472" class="sub-label">• Memory scanning — инъекции блокируются</text>
+      <text x="480" y="488" class="sub-label">• Свежие записи всегда вверху инжекта</text>
+      <text x="480" y="504" class="sub-label">• findings_to_wiki дополняет архитектурной памятью</text>
+    </svg>
+  </div>
+
+  <div class="stats">
+    <div class="stat-card">
+      <div class="num">40</div>
+      <div class="desc">unit-тестов</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">5</div>
+      <div class="desc">категорий возраста</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">2</div>
+      <div class="desc">хранилища (MEMORY + USER)</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">33</div>
+      <div class="desc">старых тестов (без изменений)</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <p>☿ Autolycus Agent · <a href="https://autolycus-agent.ru">autolycus-agent.ru</a></p>
+  </div>
+</div>
+</body>
+</html>

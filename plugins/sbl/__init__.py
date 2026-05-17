@@ -97,6 +97,14 @@ def _normalize_to_path(tool_name: str, args: dict) -> tuple[str, str]:
     return path, _classify_path(path)
 
 
+# Shell redirect targets — никогда не являются записью, всегда пропускаем
+_REDIRECT_TARGETS: frozenset = frozenset({
+    "/dev/null", "/dev/zero", "/dev/stdin", "/dev/stdout", "/dev/stderr",
+    "/dev/fd/0", "/dev/fd/1", "/dev/fd/2",
+    "&1", "&2", "&-",
+})
+
+
 def _classify_terminal_cmd(cmd: str) -> tuple[str, str]:
     if not cmd:
         return "", "UNKNOWN"
@@ -104,6 +112,9 @@ def _classify_terminal_cmd(cmd: str) -> tuple[str, str]:
         m = pattern.search(cmd)
         if m:
             path = m.group(1)
+            # Shell redirect targets — пропускаем (нет записи в файл)
+            if path in _REDIRECT_TARGETS:
+                return "", "USER"
             if not path.startswith("/"):
                 if path in _KNOWN_CONFIG_PATTERNS or path in (
                     "nginx", "xray", "stalwart", "fail2ban",
@@ -686,9 +697,10 @@ def _handle_sbl_snapshot(cmd_args: str = "") -> str:
 # ── Registration ───────────────────────────────────────────────────────────
 
 def register(ctx) -> None:
-    """Register SBL hooks: pre_tool_call + transform_tool_result + on_session_start."""
+    """Register SBL hooks: transform_tool_result + on_session_start.
+    pre_tool_call передан Governance Coordinator (plugins/governance/).
+    """
     try:
-        ctx.register_hook("pre_tool_call", _on_pre_tool_call)
         ctx.register_hook("transform_tool_result", _on_transform_tool_result)
         ctx.register_hook("on_session_start", _on_session_start)
         ctx.register_command(

@@ -191,6 +191,7 @@ from agent.trajectory import (
 )
 from utils import atomic_json_write, base_url_host_matches, base_url_hostname, env_var_enabled, normalize_proxy_url
 from hermes_cli.config import cfg_get
+from plugins.rtk.signal import pre_turn as _rtk_pre_turn
 
 
 
@@ -12219,6 +12220,7 @@ class AIAgent:
         self._unicode_sanitization_passes = 0
         self._tool_guardrails.reset_for_turn()
         self._tool_guardrail_halt_decision = None
+        self._rtk_halt_requested = False
         # True until the server rejects an image_url content part with an error
         # like "Only 'text' content type is supported."  Set to False on first
         # rejection and kept False for the rest of the session so we never re-send
@@ -12575,6 +12577,14 @@ class AIAgent:
                 if not self.quiet_mode:
                     self._safe_print("\n⚡ Breaking out of tool loop due to interrupt...")
                 break
+
+            # RTK circuit breaker: halt on BUDGET_EXCEEDED / CONSECUTIVE_ERRORS
+            rtk_halt = getattr(self, "_rtk_halt_requested", False)
+            if rtk_halt:
+                _turn_exit_reason = "rtk_circuit_breaker"
+                if not self.quiet_mode:
+                    self._safe_print("\n🔴 RTK circuit breaker: session halted (budget exceeded / errors)")
+                break
             
             api_call_count += 1
             self._api_call_count = api_call_count
@@ -12771,6 +12781,23 @@ class AIAgent:
             effective_system = active_system_prompt or ""
             if self.ephemeral_system_prompt:
                 effective_system = (effective_system + "\n\n" + self.ephemeral_system_prompt).strip()
+
+            # ── RTK pre-turn signal ────────────────────────────────────────
+            # Run pattern detectors, inject signal into system prompt.
+            # If should_halt is True, the session will be stopped.
+            _rtk_injection = ""
+            _rtk_should_halt = False
+            try:
+                if self.session_id and self._session_db:
+                    _rtk_injection, _rtk_should_halt = _rtk_pre_turn(
+                        self._session_db, self.session_id,
+                    )
+                    if _rtk_injection:
+                        effective_system = (effective_system + "\n\n" + _rtk_injection).strip()
+                    if _rtk_should_halt:
+                        self._rtk_halt_requested = True
+            except Exception as _rtk_err:
+                logger.debug("RTK pre-turn failed: %s", _rtk_err)
             if effective_system:
                 api_messages = [{"role": "system", "content": effective_system}] + api_messages
 
@@ -15307,6 +15334,26 @@ class AIAgent:
 
                     messages.append(assistant_msg)
                     self._emit_interim_assistant_message(assistant_msg)
+
+                    # ── ContextWriter: пишем даже нетуловые turn'ы ──
+                    try:
+                        from plugins.memory.context_writer import ContextWriter
+                        if not hasattr(self, '_context_writer'):
+                            self._context_writer = ContextWriter()
+                        user_msg = ""
+                        for m in reversed(messages[:-1]):
+                            if m.get("role") == "user" and "\nUser:\n" not in m.get("content", ""):
+                                user_msg = m.get("content", "")[:1000]
+                                break
+                        self._context_writer.sync_turn(
+                            session_id=self.session_id or "default",
+                            turn_number=getattr(self, '_turn_counter', 0),
+                            user_msg=user_msg,
+                            assistant_msg=assistant_msg.get("content", "")[:2000],
+                        )
+                        self._turn_counter = getattr(self, '_turn_counter', 0) + 1
+                    except Exception:
+                        pass
 
                     # Close any open streaming display (response box, reasoning
                     # box) before tool execution begins.  Intermediate turns may

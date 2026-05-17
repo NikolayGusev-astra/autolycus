@@ -35,6 +35,7 @@ def compress(
     tail_chars: int = 1000,
     persist_id: str = "",
     tool_args: Dict[str, Any] | None = None,
+    config: Dict[str, Any] | None = None,
 ) -> Tuple[str, Dict[str, Any]]:
     """Compress search_files output: keep paths, truncate line content.
 
