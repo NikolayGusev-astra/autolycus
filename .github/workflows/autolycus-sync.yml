@@ -32,12 +32,21 @@ jobs:
       - name: Save adapted files before merge
         run: |
           # These files are adapted for Autolycus — save them before upstream overwrites
-          for f in README.md SECURITY.md AGENTS.md; do
+          for f in README.md SECURITY.md AGENTS.md \
+            hermes_constants.py cli.py pyproject.toml \
+            hermes_cli/__init__.py hermes_cli/banner.py \
+            hermes_cli/main.py hermes_cli/setup.py \
+            acp_adapter/server.py install.sh; do
             if [ -f "$f" ]; then
               cp "$f" "/tmp/autolycus-$f"
               echo "✓ Saved $f"
             fi
           done
+          # Also save the full patches/ directory for belt-and-suspenders
+          if [ -d patches ]; then
+            cp -r patches /tmp/autolycus-patches
+            echo "✓ Saved patches/ dir"
+          fi
 
       - name: Fetch upstream
         run: |
@@ -67,19 +76,28 @@ jobs:
         if: steps.count.outputs.commits != '0'
         run: |
           # Restore Autolycus-adapted versions (discard upstream overwrites)
-          for f in README.md SECURITY.md AGENTS.md; do
+          for f in README.md SECURITY.md AGENTS.md \
+            hermes_constants.py cli.py pyproject.toml \
+            hermes_cli/__init__.py hermes_cli/banner.py \
+            hermes_cli/main.py hermes_cli/setup.py \
+            acp_adapter/server.py install.sh; do
             if [ -f "/tmp/autolycus-$f" ]; then
               cp "/tmp/autolycus-$f" "$f"
               git add "$f"
               echo "✓ Restored $f (autolycus adaptation preserved)"
             fi
           done
+          # Restore patches/ dir if saved
+          if [ -d /tmp/autolycus-patches ]; then
+            cp -r /tmp/autolycus-patches/* patches/ 2>/dev/null || true
+            echo "✓ Restored patches/ dir"
+          fi
 
       - name: Check for merge conflicts (besides protected files)
         if: steps.count.outputs.commits != '0'
         run: |
           if [ -f .merge_status ]; then
-            UNRESOLVED=$(git diff --name-only --diff-filter=U 2>/dev/null | grep -v -E '^(README\.md|SECURITY\.md|AGENTS\.md)$' || true)
+            UNRESOLVED=$(git diff --name-only --diff-filter=U 2>/dev/null | grep -v -E '^(README\.md|SECURITY\.md|AGENTS\.md|hermes_constants\.py|cli\.py|pyproject\.toml|hermes_cli/__init__\.py|hermes_cli/banner\.py|hermes_cli/main\.py|hermes_cli/setup\.py|acp_adapter/server\.py|install\.sh)$' || true)
             if [ -n "$UNRESOLVED" ]; then
               echo "::warning::Merge conflicts in non-protected files:"
               echo "$UNRESOLVED"
@@ -101,7 +119,11 @@ jobs:
         if: steps.count.outputs.commits != '0'
         run: |
           # Patches might have touched these files too — restore again
-          for f in README.md SECURITY.md AGENTS.md; do
+          for f in README.md SECURITY.md AGENTS.md \
+            hermes_constants.py cli.py pyproject.toml \
+            hermes_cli/__init__.py hermes_cli/banner.py \
+            hermes_cli/main.py hermes_cli/setup.py \
+            acp_adapter/server.py install.sh; do
             if [ -f "/tmp/autolycus-$f" ]; then
               cp "/tmp/autolycus-$f" "$f"
               git add "$f"
