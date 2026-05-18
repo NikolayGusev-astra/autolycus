@@ -280,9 +280,19 @@ def _extract_fact(user_msg: str, asst_msg: str) -> str | None:
         if len(a) < 100:
             return None
 
+    import re as _re
+
+    # Heuristic pre-check: skip status messages with no technical depth
+    STATUS_NOISE = [
+        r'restarted|перезапущен|deactivating|drain|active',
+        r'(now|is)\s+(active|running|dead)',
+        r'auto[- ](management|enabled|confirmed)',
+    ]
+    if len(a) < 150 and any(_re.search(p, a.lower()) for p in STATUS_NOISE):
+        return None
+
     # Heuristic pre-check: is there anything worth extracting?
     # Avoids LLM churn — 90%+ of turns are filtered here.
-    import re as _re
     SIGNIFICANT = [
         r'error|ошибка|failed|exception|traceback',
         r'config|конфиг|настройк|setup|nginx|xray|docker',
