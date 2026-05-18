@@ -75,10 +75,10 @@ DEFAULT_PATTERNS: list[tuple[str, str]] = [
     # Prism analysis
     (r"(?i)## (Findings|Findings Table|Conservation Law|Deepest finding)", "prism"),
     (r"(?i)## (Ключевые находки|Рекомендаци)", "research"),
-    (r"(?i)^\| \# \|", "prism"),
+    (r"(?im)^\| \# \|", "prism"),
     # ADR
     (r"(?i)## (Статус|Контекст|Принятое решение|Declarations?|Decision)", "adr"),
-    # Research
+    # Research — single keyword match triggers
     (r"(?i)## (Key Findings|Verification|Actionable Recommendations)", "research"),
 ]
 
@@ -152,7 +152,7 @@ def _load_patterns(plugin_cfg: dict) -> list[tuple[re.Pattern, str]]:
     return result
 
 
-def _detect_finding_type(text: str, patterns: list[tuple[re.Pattern, str]], threshold: int = 2) -> str | None:
+def _detect_finding_type(text: str, patterns: list[tuple[re.Pattern, str]], threshold: int = 1) -> str | None:
     """Detect structured finding in text using configured patterns."""
     matches: dict[str, int] = {}
     for pattern, ftype in patterns:
@@ -268,7 +268,7 @@ def _extract_fact(user_msg: str, asst_msg: str) -> str | None:
     u = (user_msg or "").strip()
     a = (asst_msg or "").strip()
 
-    # Pre-filter: skip short/trivial turns before calling LLM
+    # Pre-filter: skip short/trivial turns before any processing
     if len(u) + len(a) < 60:
         return None
     u_lower = u.lower()
@@ -279,6 +279,21 @@ def _extract_fact(user_msg: str, asst_msg: str) -> str | None:
     if a.startswith("⏳") or a.startswith("❌") or a.startswith("⚠️") or a.startswith("✅"):
         if len(a) < 100:
             return None
+
+    # Heuristic pre-check: is there anything worth extracting?
+    # Avoids LLM churn — 90%+ of turns are filtered here.
+    import re as _re
+    SIGNIFICANT = [
+        r'error|ошибка|failed|exception|traceback',
+        r'config|конфиг|настройк|setup|nginx|xray|docker',
+        r'решени|decision|выбр|recommend',
+        r'команд|command|run|запуст|restart',
+        r'установ|install|deploy|update',
+        r'проблем|issue|bug|fix|исправ',
+    ]
+    combined = (u + " " + a).lower()
+    if not any(_re.search(p, combined) for p in SIGNIFICANT):
+        return None
 
     try:
         from agent.auxiliary_client import call_llm
@@ -305,23 +320,10 @@ def _extract_fact(user_msg: str, asst_msg: str) -> str | None:
 
     except Exception as e:
         logger.debug("LLM fact extraction failed, falling back to heuristic: %s", e)
-        # Fallback: heuristic extraction for errors/configs
-        import re
-        SIGNIFICANT = [
-            r'error|ошибка|failed|exception|traceback',
-            r'config|конфиг|настройк|setup|nginx|xray|docker',
-            r'решени|decision|выбр|recommend',
-            r'команд|command|run|запуст|restart',
-            r'установ|install|deploy|update',
-            r'проблем|issue|bug|fix|исправ',
-        ]
-        combined = (u + " " + a).lower()
-        if not any(re.search(p, combined) for p in SIGNIFICANT):
-            return None
-        # Extract the most relevant line
+        # Fallback: heuristic extraction — same SIGNIFICANT patterns as above
         for line in (a.split("\n") + u.split("\n")):
             line = line.strip()
-            if len(line) > 15 and any(re.search(p, line.lower()) for p in SIGNIFICANT):
+            if len(line) > 15 and any(_re.search(p, line.lower()) for p in SIGNIFICANT):
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
                 return f"{timestamp}: {line[:300]}"
         return None
@@ -338,7 +340,7 @@ class FindingsToWikiProvider(MemoryProvider):
         self._mem_path: Path | None = None
         self._raw_dir: Path | None = None
         self._patterns: list[tuple[re.Pattern, str]] = []
-        self._trigger_threshold = 2
+        self._trigger_threshold = 1
         self._memory_char_limit = 2200
         self._initialized = False
 
@@ -369,40 +371,6 @@ class FindingsToWikiProvider(MemoryProvider):
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         return []
-
-    def on_memory_write(
-        self,
-        action: str,
-        target: str,
-        content: str,
-        metadata: Optional[dict[str, Any]] = None,
-    ) -> None:
-        """Intercept manual memory() tool calls — prune after write to stay under limit.
-
-        findings_to_wiki's auto-sync (sync_turn) already manages the limit.
-        This hook catches manual memory() tool calls: after the write succeeds,
-        re-reads MEMORY.md and prunes oldest entries if limit exceeded.
-        """
-        if not self._initialized or not self._mem_path:
-            return
-        if target != "memory":
-            return
-        if action not in {"add", "replace"}:
-            return
-        try:
-            entries = _read_file(self._mem_path)
-            entries = list(dict.fromkeys(entries))
-            joined = ENTRY_DELIMITER.join(entries)
-            while len(joined) > self._memory_char_limit and len(entries) > 1:
-                entries.pop(0)
-                joined = ENTRY_DELIMITER.join(entries)
-            _write_file(self._mem_path, entries)
-            logger.debug(
-                "findings-to-wiki pruned after manual memory(%s): %d entries, %d chars",
-                action, len(entries), len(joined),
-            )
-        except Exception as e:
-            logger.debug("findings-to-wiki on_memory_write prune failed: %s", e)
 
     def sync_turn(
         self,
