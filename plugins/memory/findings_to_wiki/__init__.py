@@ -280,9 +280,17 @@ def _extract_fact(user_msg: str, asst_msg: str) -> str | None:
         if len(a) < 100:
             return None
 
+    # Heuristic pre-check: skip status messages with no technical depth
+    STATUS_NOISE = [
+        r'restarted|перезапущен|deactivating|drain|active',
+        r'(now|is)\\s+(active|running|dead)',
+        r'auto[- ](management|enabled|confirmed)',
+    ]
+    if len(a) < 150 and any(_re.search(p, a.lower()) for p in STATUS_NOISE):
+        return None
+
     # Heuristic pre-check: is there anything worth extracting?
     # Avoids LLM churn — 90%+ of turns are filtered here.
-    import re as _re
     SIGNIFICANT = [
         r'error|ошибка|failed|exception|traceback',
         r'config|конфиг|настройк|setup|nginx|xray|docker',
@@ -372,6 +380,40 @@ class FindingsToWikiProvider(MemoryProvider):
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         return []
 
+    def on_memory_write(
+            self,
+            action: str,
+            target: str,
+            content: str,
+            metadata: Optional[dict[str, Any]] = None,
+        ) -> None:
+            """Intercept manual memory() tool calls — prune after write to stay under limit.
+    
+            findings_to_wiki's auto-sync (sync_turn) already manages the limit.
+            This hook catches manual memory() tool calls: after the write succeeds,
+            re-reads MEMORY.md and prunes oldest entries if limit exceeded.
+            """
+            if not self._initialized or not self._mem_path:
+                return
+            if target != "memory":
+                return
+            if action not in {"add", "replace"}:
+                return
+            try:
+                entries = _read_file(self._mem_path)
+                entries = list(dict.fromkeys(entries))
+                joined = ENTRY_DELIMITER.join(entries)
+                while len(joined) > self._memory_char_limit and len(entries) > 1:
+                    entries.pop(0)
+                    joined = ENTRY_DELIMITER.join(entries)
+                _write_file(self._mem_path, entries)
+                logger.debug(
+                    "findings-to-wiki pruned after manual memory(%s): %d entries, %d chars",
+                    action, len(entries), len(joined),
+                )
+            except Exception as e:
+                logger.debug("findings-to-wiki on_memory_write prune failed: %s", e)
+    
     def sync_turn(
         self,
         user_content: str,
