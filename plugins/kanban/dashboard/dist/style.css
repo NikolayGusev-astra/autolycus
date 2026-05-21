@@ -63,13 +63,18 @@
 /* ---- Columns layout -------------------------------------------------- */
 
 .hermes-kanban-columns {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  display: flex;
   gap: 0.75rem;
   align-items: start;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.hermes-kanban-columns::-webkit-scrollbar {
+  display: none;
 }
 
 .hermes-kanban-column {
+  flex: 0 0 280px;
   display: flex;
   flex-direction: column;
   background: color-mix(in srgb, var(--color-card) 85%, transparent);
@@ -465,7 +470,6 @@
 .hermes-kanban-section-head {
   font-size: 0.72rem;
   font-weight: 600;
-  text-transform: uppercase;
   letter-spacing: 0.07em;
   color: var(--color-muted-foreground);
 }
@@ -611,7 +615,6 @@
 }
 .hermes-kanban-deps-label {
   font-size: 0.68rem;
-  text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--color-muted-foreground);
   min-width: 4rem;
@@ -691,7 +694,6 @@
   border: 0;
   color: var(--color-muted-foreground);
   font-size: 0.7rem;
-  text-transform: uppercase;
   letter-spacing: 0.05em;
   cursor: pointer;
   padding: 0;
@@ -869,7 +871,6 @@
 .hermes-kanban-run-outcome {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-weight: 600;
-  text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--color-foreground);
 }
@@ -929,7 +930,6 @@
 .hermes-kanban-run-meta-label {
   font-size: 0.65rem;
   font-weight: 600;
-  text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--color-muted-foreground);
   padding-bottom: 0.15rem;

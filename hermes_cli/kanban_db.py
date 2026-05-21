@@ -2798,6 +2798,7 @@ def decompose_triage_task(
     root_assignee: Optional[str],
     children: list[dict],
     author: Optional[str] = None,
+    auto_promote: bool = True,
 ) -> Optional[list[str]]:
     """Fan a triage task out into child tasks and promote the root to ``todo``.
 
@@ -2848,6 +2849,29 @@ def decompose_triage_task(
                 )
             if p == idx:
                 raise ValueError(f"child[{idx}] cannot list itself as a parent")
+
+    # Detect cycles in the sibling parent graph (Kahn's topological sort).
+    # link_tasks() calls _would_cycle() for every new edge; here we check
+    # the entire sibling graph before touching the DB.  A cycle silently
+    # deadlocks every involved child in 'todo' because recompute_ready()
+    # can never promote them.
+    _in_deg = [0] * len(children)
+    _adj: list[list[int]] = [[] for _ in range(len(children))]
+    for _i, _c in enumerate(children):
+        for _p in (_c.get("parents") or []):
+            _adj[_p].append(_i)
+            _in_deg[_i] += 1
+    _queue = [_i for _i in range(len(children)) if _in_deg[_i] == 0]
+    _seen = 0
+    while _queue:
+        _node = _queue.pop()
+        _seen += 1
+        for _nb in _adj[_node]:
+            _in_deg[_nb] -= 1
+            if _in_deg[_nb] == 0:
+                _queue.append(_nb)
+    if _seen != len(children):
+        raise ValueError("cyclic dependency detected in decomposed children list")
 
     # We do the full decomposition in a SINGLE write_txn so it's
     # atomic: either every child is created AND the root flips to
@@ -2960,8 +2984,11 @@ def decompose_triage_task(
 
     # Outside the write_txn: promote parent-free children to 'ready'
     # so the dispatcher picks them up on its next tick. Same pattern
-    # specify_triage_task uses.
-    recompute_ready(conn)
+    # specify_triage_task uses.  When auto_promote is False children
+    # stay in 'todo' until the user manually promotes them — useful
+    # for manual-review-first workflows.
+    if auto_promote:
+        recompute_ready(conn)
     return child_ids
 
 
