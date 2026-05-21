@@ -136,9 +136,8 @@ def _ensure_snapshot_dir() -> Path:
     global _SNAPSHOT_DIR
     if _SNAPSHOT_DIR is None:
         for candidate in [
-            Path("/opt/hermes-victim-data/sbl-snapshot"),
-            Path("/tmp/sbl-snapshot"),
             Path.home() / ".hermes" / "sbl-snapshot",
+            Path("/tmp/sbl-snapshot"),
         ]:
             try:
                 candidate.mkdir(parents=True, exist_ok=True)

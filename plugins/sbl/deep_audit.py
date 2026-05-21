@@ -29,9 +29,10 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ── Shell helper ────────────────────────────────────────────────────────────
-# Используем абсолютные пути — ~/bin может не быть в PATH у subprocess
-_FD = "/home/astralinux.ru/ngusev/bin/fd"
-_RG = "/home/astralinux.ru/ngusev/bin/rg"
+# Автоопределение fd/rg — подставляем системные пути
+import shutil as _shutil
+_FD = _shutil.which("fd") or "/usr/local/bin/fd"
+_RG = _shutil.which("rg") or "/usr/bin/rg"
 
 def _run(cmd: str, timeout: int = 30) -> str:
     try:
