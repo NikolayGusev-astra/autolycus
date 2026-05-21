@@ -29,10 +29,46 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ── Shell helper ────────────────────────────────────────────────────────────
-# Автоопределение fd/rg — подставляем системные пути
+# Поиск portable-инструментов по схеме tacops:
+#   1. portable/bin/<name>   (статический бинарник в репо)
+#   2. portable/venv/bin/<name>
+#   3. shutil.which(name)    (system PATH — fallback)
+
 import shutil as _shutil
-_FD = _shutil.which("fd") or "/usr/local/bin/fd"
-_RG = _shutil.which("rg") or "/usr/bin/rg"
+from pathlib import Path as _Path
+
+def _resolve_tool(name: str) -> str:
+    """Найти инструмент: portable/bin → portable/venv/bin → system PATH."""
+    # 1. Поиск portable/ относительно plugins/sbl/deep_audit.py
+    this_file = _Path(__file__).resolve()
+    portable_candidates = [
+        this_file.parent.parent.parent / "portable",        # ../../portable/
+        _Path.cwd() / "portable",                           # cwd/portable/
+        _Path.home() / ".autolycus" / "portable",           # ~/.autolycus/portable/
+    ]
+    if "AUTOLYCUS_HOME" in os.environ:
+        portable_candidates.insert(0, _Path(os.environ["AUTOLYCUS_HOME"]) / "portable")
+
+    for p in portable_candidates:
+        p = p.resolve()
+        if p.is_dir():
+            # 2. ищем в bin/ или venv/bin/
+            for subdir in ("bin", "venv/bin"):
+                tool_path = p / subdir / name
+                if tool_path.is_file():
+                    return str(tool_path)
+            break  # portable найден, но бинарника нет — не ищем другие candidate
+
+    # 3. Fallback: system PATH
+    sys_path = _shutil.which(name)
+    if sys_path:
+        return sys_path
+
+    logger.warning("[SBL/deep-audit] %s не найден — ни в portable/, ни в PATH", name)
+    return name
+
+_FD = _resolve_tool("fd")
+_RG = _resolve_tool("rg")
 
 def _run(cmd: str, timeout: int = 30) -> str:
     try:

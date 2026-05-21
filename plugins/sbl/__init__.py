@@ -136,7 +136,7 @@ def _ensure_snapshot_dir() -> Path:
     global _SNAPSHOT_DIR
     if _SNAPSHOT_DIR is None:
         for candidate in [
-            Path.home() / ".hermes" / "sbl-snapshot",
+            Path.home() / ".autolycus" / "sbl-snapshot",
             Path("/tmp/sbl-snapshot"),
         ]:
             try:
