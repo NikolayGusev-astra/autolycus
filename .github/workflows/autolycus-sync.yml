@@ -108,28 +108,12 @@ jobs:
             fi
           fi
 
-      - name: Apply autolycus patches
+      - name: Apply autolycus rebranding
         if: steps.count.outputs.commits != '0' && !cancelled() && env.CONFLICT_REMAINS != 'true'
-        id: patches
+        id: rebrand
         run: |
-          bash patches/apply.sh
-          echo "Patches applied"
-
-      - name: Restore adapted files after patches
-        if: steps.count.outputs.commits != '0'
-        run: |
-          # Patches might have touched these files too — restore again
-          for f in README.md SECURITY.md AGENTS.md \
-            hermes_constants.py cli.py pyproject.toml \
-            hermes_cli/__init__.py hermes_cli/banner.py \
-            hermes_cli/main.py hermes_cli/setup.py \
-            acp_adapter/server.py install.sh; do
-            if [ -f "/tmp/autolycus-$f" ]; then
-              cp "/tmp/autolycus-$f" "$f"
-              git add "$f"
-              echo "✓ Final restore of $f"
-            fi
-          done
+          bash scripts/apply-autolycus-rebrand.sh
+          echo "Rebranding applied"
 
       - name: Create conflict issue
         if: failure() && steps.patches.conclusion == 'failure'
