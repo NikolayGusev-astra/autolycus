@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Hermes CLI - Main entry point.
+Autolycus CLI - Main entry point.
 
 Usage:
-    hermes                     # Interactive chat (default)
-    hermes chat                # Interactive chat
-    hermes gateway             # Run gateway in foreground
-    hermes gateway start       # Start gateway as service
-    hermes gateway stop        # Stop gateway service
+    autolycus                     # Interactive chat (default)
+    autolycus chat                # Interactive chat
+    autolycus gateway             # Run gateway in foreground
+    autolycus gateway start       # Start gateway as service
+    autolycus gateway stop        # Stop gateway service
     hermes gateway status      # Show gateway status
     hermes gateway install     # Install gateway service
     hermes gateway uninstall   # Uninstall gateway service
