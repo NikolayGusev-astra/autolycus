@@ -32,21 +32,27 @@ jobs:
       - name: Save adapted files before merge
         run: |
           # These files are adapted for Autolycus — save them before upstream overwrites
+          mkdir -p /tmp/autolycus-save/hermes_cli /tmp/autolycus-save/acp_adapter /tmp/autolycus-save/install.sh
           for f in README.md SECURITY.md AGENTS.md \
-            hermes_constants.py cli.py pyproject.toml \
-            hermes_cli/__init__.py hermes_cli/banner.py \
-            hermes_cli/main.py hermes_cli/setup.py \
-            acp_adapter/server.py install.sh; do
+            hermes_constants.py cli.py pyproject.toml; do
             if [ -f "$f" ]; then
-              cp "$f" "/tmp/autolycus-$f"
+              cp "$f" "/tmp/autolycus-save/$f"
               echo "✓ Saved $f"
             fi
           done
-          # Also save the full patches/ directory for belt-and-suspenders
-          if [ -d patches ]; then
-            cp -r patches /tmp/autolycus-patches
-            echo "✓ Saved patches/ dir"
-          fi
+          for f in hermes_cli/__init__.py hermes_cli/banner.py \
+            hermes_cli/main.py hermes_cli/setup.py; do
+            if [ -f "$f" ]; then
+              cp "$f" "/tmp/autolycus-save/$f"
+              echo "✓ Saved $f"
+            fi
+          done
+          for f in acp_adapter/server.py install.sh; do
+            if [ -f "$f" ]; then
+              cp "$f" "/tmp/autolycus-save/$f"
+              echo "✓ Saved $f"
+            fi
+          done
 
       - name: Fetch upstream
         run: |
@@ -77,21 +83,28 @@ jobs:
         run: |
           # Restore Autolycus-adapted versions (discard upstream overwrites)
           for f in README.md SECURITY.md AGENTS.md \
-            hermes_constants.py cli.py pyproject.toml \
-            hermes_cli/__init__.py hermes_cli/banner.py \
-            hermes_cli/main.py hermes_cli/setup.py \
-            acp_adapter/server.py install.sh; do
-            if [ -f "/tmp/autolycus-$f" ]; then
-              cp "/tmp/autolycus-$f" "$f"
+            hermes_constants.py cli.py pyproject.toml; do
+            if [ -f "/tmp/autolycus-save/$f" ]; then
+              cp "/tmp/autolycus-save/$f" "$f"
               git add "$f"
               echo "✓ Restored $f (autolycus adaptation preserved)"
             fi
           done
-          # Restore patches/ dir if saved
-          if [ -d /tmp/autolycus-patches ]; then
-            cp -r /tmp/autolycus-patches/* patches/ 2>/dev/null || true
-            echo "✓ Restored patches/ dir"
-          fi
+          for f in hermes_cli/__init__.py hermes_cli/banner.py \
+            hermes_cli/main.py hermes_cli/setup.py; do
+            if [ -f "/tmp/autolycus-save/$f" ]; then
+              cp "/tmp/autolycus-save/$f" "$f"
+              git add "$f"
+              echo "✓ Restored $f (autolycus adaptation preserved)"
+            fi
+          done
+          for f in acp_adapter/server.py install.sh; do
+            if [ -f "/tmp/autolycus-save/$f" ]; then
+              cp "/tmp/autolycus-save/$f" "$f"
+              git add "$f"
+              echo "✓ Restored $f (autolycus adaptation preserved)"
+            fi
+          done
 
       - name: Check for merge conflicts (besides protected files)
         if: steps.count.outputs.commits != '0'
