@@ -3957,6 +3957,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
         # Calculate session cost
         try:
+<<<<<<< HEAD
             cost_r = estimate_usage_cost(
                 model_name,
                 CanonicalUsage(
@@ -3974,6 +3975,22 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 snapshot["session_cost"] = None
         except Exception:
             snapshot["session_cost"] = None
+=======
+            total_tokens = snapshot.get("session_total_tokens", 0) or 0
+            model_name = getattr(agent, "model", "") or ""
+            # Rough cost estimate: $0.005 per 1K tokens (adjustable)
+            cost_per_1k = 0.005
+            if "deepseek" in model_name.lower():
+                cost_per_1k = 0.00027  # DeepSeek V3: $0.27/M tokens
+            elif "claude" in model_name.lower():
+                cost_per_1k = 0.003  # Claude Sonnet: $3/M tokens
+            elif "gpt-4" in model_name.lower():
+                cost_per_1k = 0.0025  # GPT-4o: $2.5/M tokens
+            cost_usd = (total_tokens / 1000) * cost_per_1k
+            snapshot["session_cost_usd"] = round(cost_usd, 4)
+        except Exception:
+            snapshot["session_cost_usd"] = 0.0
+>>>>>>> 714ccd477 (fix: restore lost autolycus features after upstream merge)
 
         compressor = getattr(agent, "context_compressor", None)
         if compressor:
@@ -8505,6 +8522,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             # Console quietness is enforced by hermes_logging not
             # installing a console StreamHandler in non-verbose mode.
 
+<<<<<<< HEAD
     def _print_nous_credits_block(self) -> bool:
         """Print the Nous credits magnitudes + monthly-grant gauge when a Nous account
         is logged in. Returns True if it printed anything.
@@ -8606,6 +8624,46 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 print(f"  Top-up URL: {view.topup_url}")
         else:
             print("  🟡 Cancelled. No credits added.")
+=======
+    def _show_token_log(self, cmd_original: str = ""):
+        """Show per-call token log for the current session (/token-log, /tokens)."""
+        if not self.agent:
+            print("(._.) No active agent -- send a message first.")
+            return
+
+        agent = self.agent
+        calls = getattr(agent, "session_api_calls", 0) or 0
+        if calls == 0:
+            print("(._.) No API calls made yet in this session.")
+            return
+
+        # Get per-call log if available
+        token_log = getattr(agent, "_token_log", None)
+        if not token_log:
+            # Fallback: show summary from session totals
+            total = getattr(agent, "session_total_tokens", 0) or 0
+            input_t = getattr(agent, "session_input_tokens", 0) or 0
+            output_t = getattr(agent, "session_output_tokens", 0) or 0
+            print(f"  📊 Token Log (summary, {calls} calls)")
+            print(f"  {'─' * 40}")
+            print(f"  Total tokens:  {total:>10,}")
+            print(f"  Input tokens:  {input_t:>10,}")
+            print(f"  Output tokens: {output_t:>10,}")
+            print(f"  Avg per call:  {total // calls if calls else 0:>10,}")
+            return
+
+        print(f"  📊 Per-Call Token Log ({len(token_log)} calls)")
+        print(f"  {'─' * 60}")
+        print(f"  {'#':>4}  {'Input':>10}  {'Output':>10}  {'Total':>10}  {'Model'}")
+        print(f"  {'─' * 60}")
+        for i, entry in enumerate(token_log, 1):
+            inp = entry.get("input_tokens", 0)
+            out = entry.get("output_tokens", 0)
+            tot = entry.get("total_tokens", inp + out)
+            model = entry.get("model", agent.model)[:30]
+            print(f"  {i:>4}  {inp:>10,}  {out:>10,}  {tot:>10,}  {model}")
+        print(f"  {'─' * 60}")
+>>>>>>> 714ccd477 (fix: restore lost autolycus features after upstream merge)
 
     def _show_insights(self, command: str = "/insights"):
         """Show usage insights and analytics from session history."""
