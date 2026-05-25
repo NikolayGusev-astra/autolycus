@@ -3,42 +3,85 @@
 Pure functions. No I/O. Returns Signal or None.
 
 Detects:
-- TURN_COST_WARNING: single turn exceeds soft_max (advise to reduce)
-- GROWTH_SPIKE: single turn exceeds hard_max (warn strongly)
+- TURN_COST_WARNING: single turn exceeds soft_max_pct of context window
+- GROWTH_SPIKE: single turn exceeds hard_max_pct of context window
 - GROWTH_ACCEL: history grew N× in check_window turns
 
-Thresholds tuned for 128K context. For 1M context, raise via config:
-  plugins:
-    rtk_ck:
-      soft_max_tokens_per_turn: 250000
-      hard_max_tokens_per_turn: 500000
+Thresholds are automatic percentages of the model's context length:
+- soft_max_pct: 25% of context (warning — reduce large reads)
+- hard_max_pct: 50% of context (spike  — dangerous)
+- config overrides still work for fine-tuning
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Optional
 
 from plugins.rtk.pattern import Signal
 
-# Defaults — tuned for 128K context (aggressive monitoring)
-DEFAULT_SOFT_MAX_TOKENS_PER_TURN = 32_000   # 25% of 128K — warning
-DEFAULT_HARD_MAX_TOKENS_PER_TURN = 64_000   # 50% of 128K — spike
+logger = logging.getLogger(__name__)
+
+# Thresholds as percentages of context window
+DEFAULT_SOFT_MAX_PCT = 0.25   # 25% of context — TURN_COST_WARNING
+DEFAULT_HARD_MAX_PCT = 0.50   # 50% of context — GROWTH_SPIKE
 DEFAULT_MAX_GROWTH_RATE = 2.0
 DEFAULT_CHECK_WINDOW = 3
 
 
-def detect_turn_cost(last_turn_tokens: int, config: Optional[Dict[str, Any]] = None) -> Optional[Signal]:
+def _resolve_thresholds(context_length: int, config: Optional[Dict[str, Any]] = None) -> tuple[int, int]:
+    """Calculate soft/hard token thresholds from context length.
+
+    Resolution order:
+    1. Explicit config overrides (soft_max_tokens_per_turn, hard_max_tokens_per_turn)
+    2. Config percent overrides (soft_max_pct, hard_max_pct)
+    3. Default percentages of context length (25%, 50%)
+    """
+    cfg = config or {}
+
+    # Explicit token-level overrides take priority
+    explicit_soft = cfg.get("soft_max_tokens_per_turn")
+    explicit_hard = cfg.get("hard_max_tokens_per_turn")
+    if explicit_soft and explicit_hard:
+        return int(explicit_soft), int(explicit_hard)
+
+    # Percent overrides (0.0-1.0)
+    soft_pct = cfg.get("soft_max_pct", DEFAULT_SOFT_MAX_PCT)
+    hard_pct = cfg.get("hard_max_pct", DEFAULT_HARD_MAX_PCT)
+
+    # Clamp to sensible ranges
+    soft_pct = max(0.05, min(soft_pct, 0.80))
+    hard_pct = max(soft_pct + 0.10, min(hard_pct, 0.95))
+
+    soft_max = int(context_length * soft_pct)
+    hard_max = int(context_length * hard_pct)
+
+    # Hard must be > soft
+    if hard_max <= soft_max:
+        hard_max = int(soft_max * 1.5)
+
+    logger.debug(
+        "GrowthDetector thresholds: ctx=%d soft=%d (%.0f%%) hard=%d (%.0f%%)",
+        context_length, soft_max, soft_pct * 100, hard_max, hard_pct * 100,
+    )
+
+    return soft_max, hard_max
+
+
+def detect_turn_cost(
+    last_turn_tokens: int,
+    context_length: int,
+    config: Optional[Dict[str, Any]] = None,
+) -> Optional[Signal]:
     """Warn when a single turn adds too many tokens.
 
     Two levels:
     - TURN_COST_WARNING: soft limit exceeded → advise reducing reads
     - GROWTH_SPIKE: hard limit exceeded → strong warning about context overflow
     """
-    if last_turn_tokens <= 0:
+    if last_turn_tokens <= 0 or context_length <= 0:
         return None
 
-    cfg = config or {}
-    soft_max = cfg.get("soft_max_tokens_per_turn", DEFAULT_SOFT_MAX_TOKENS_PER_TURN)
-    hard_max = cfg.get("hard_max_tokens_per_turn", DEFAULT_HARD_MAX_TOKENS_PER_TURN)
+    soft_max, hard_max = _resolve_thresholds(context_length, config)
 
     # Hard limit — danger zone, context overflow risk
     if last_turn_tokens > hard_max:
@@ -48,7 +91,7 @@ def detect_turn_cost(last_turn_tokens: int, config: Optional[Dict[str, Any]] = N
             severity="critical" if ratio > 2.0 else "warn",
             message=(
                 f"Turn added {last_turn_tokens:,} tokens "
-                f"({ratio:.1f}× above {hard_max:,} limit). "
+                f"({ratio:.1f}× above {hard_max:,} hard limit). "
                 f"Critical: avoid large reads or use tools that filter output."
             ),
             count=last_turn_tokens,
@@ -79,6 +122,7 @@ class GrowthDetector:
     def detect(
         history: Dict[str, Any],
         config: Optional[Dict[str, Any]] = None,
+        context_length: int = 128_000,
     ) -> Optional[Signal]:
         """Detect abnormal growth patterns.
 
@@ -89,7 +133,8 @@ class GrowthDetector:
                 - history_tokens_n_turns_ago: int (total N turns ago, for accel check)
                 - last_turn_tokens: int (tokens added in most recent turn)
             config: Override thresholds (soft_max_tokens_per_turn, hard_max_tokens_per_turn,
-                    max_growth_rate, check_window).
+                    soft_max_pct, hard_max_pct, max_growth_rate, check_window).
+            context_length: Model's context window in tokens (used for % thresholds).
 
         Returns:
             Signal or None. Priority: GROWTH_SPIKE > TURN_COST_WARNING > GROWTH_ACCEL.
@@ -100,8 +145,8 @@ class GrowthDetector:
         cfg = config or {}
         last_turn = history.get("last_turn_tokens", 0)
 
-        # 1. Per-turn cost check (new two-level system)
-        turn_signal = detect_turn_cost(last_turn, cfg)
+        # 1. Per-turn cost check (auto-scaled to context window)
+        turn_signal = detect_turn_cost(last_turn, context_length, cfg)
         if turn_signal:
             return turn_signal
 

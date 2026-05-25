@@ -23,28 +23,20 @@ _metrics = get_metrics_collector()
 
 logger = logging.getLogger(__name__)
 
-# Default context length when model isn't recognized
 _DEFAULT_CONTEXT_LENGTH = 128_000
 
-
 def _resolve_context_length(model: str) -> int:
-    """Get approximate context length for a model by name."""
-    if not model:
-        return _DEFAULT_CONTEXT_LENGTH
-    model_lower = model.lower()
-    # Common context lengths by model family
-    if any(x in model_lower for x in ("mini", "flash", "small")):
-        return 128_000
-    if "claude" in model_lower or "sonnet" in model_lower:
-        return 200_000
-    if "gpt-4" in model_lower or "gpt4" in model_lower:
-        return 128_000
-    if "gemini" in model_lower:
-        return 1_000_000 if "pro" in model_lower else 128_000
-    if "deepseek" in model_lower:
-        return 128_000
-    if "command" in model_lower:
-        return 128_000
+    """Get context length for a model using the agent's metadata resolver.
+
+    Falls back to 128K only if the resolver returns nothing.
+    """
+    try:
+        from agent.model_metadata import get_model_context_length
+        ctx = get_model_context_length(model)
+        if ctx and ctx > 0:
+            return ctx
+    except Exception:
+        pass
     return _DEFAULT_CONTEXT_LENGTH
 
 
@@ -121,11 +113,14 @@ def rtk_ck_pre_turn(
     # Count tokens added in the current turn (from last user message onward)
     last_turn_tokens = _count_last_turn_tokens(conversation_history)
 
-    growth_signal = GrowthDetector.detect({
-        "turn_count": len(conversation_history),
-        "history_tokens": history_tokens,
-        "last_turn_tokens": last_turn_tokens,
-    })
+    growth_signal = GrowthDetector.detect(
+        {
+            "turn_count": len(conversation_history),
+            "history_tokens": history_tokens,
+            "last_turn_tokens": last_turn_tokens,
+        },
+        context_length=context_length,
+    )
     if growth_signal:
         logger.info(
             "RTK-CK/%s: session=%s %s",
