@@ -1,0 +1,6 @@
+name: rtk_ck
+version: 3.0.0
+description: "RTK-CK — Conversation Kernel (RTK v3): type-aware history compression, budget monitoring, growth detection, and sequence-level pattern detection"
+author: "Nikolay Gusev"
+hooks:
+  - pre_llm_call

@@ -1,0 +1,241 @@
+"""RTK-CK plugin — Conversation Kernel (RTK v3).
+
+Registers a ``pre_llm_call`` hook that:
+1. Scans conversation history token budget (BUDGET_WARN/CRITICAL/HALT)
+2. Detects growth anomalies (GROWTH_SPIKE, GROWTH_ACCEL)
+3. Detects sequence patterns (REDUNDANT_READS, STALLED_SESSION)
+4. Injects warnings into the user message context
+
+This is Phase 1: read-only monitoring. No message mutation.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Any, Dict, Optional
+
+from plugins.rtk_ck.budget import BudgetScanner
+from plugins.rtk_ck.growth import GrowthDetector
+from plugins.rtk_ck.patterns import PatternDetector
+from plugins.rtk_ck.prefetch_cache import _prefetch_cache
+from plugins.rtk_ck.metrics import get_metrics_collector
+
+_metrics = get_metrics_collector()
+
+logger = logging.getLogger(__name__)
+
+# Default context length when model isn't recognized
+_DEFAULT_CONTEXT_LENGTH = 128_000
+
+
+def _resolve_context_length(model: str) -> int:
+    """Get approximate context length for a model by name."""
+    if not model:
+        return _DEFAULT_CONTEXT_LENGTH
+    model_lower = model.lower()
+    # Common context lengths by model family
+    if any(x in model_lower for x in ("mini", "flash", "small")):
+        return 128_000
+    if "claude" in model_lower or "sonnet" in model_lower:
+        return 200_000
+    if "gpt-4" in model_lower or "gpt4" in model_lower:
+        return 128_000
+    if "gemini" in model_lower:
+        return 1_000_000 if "pro" in model_lower else 128_000
+    if "deepseek" in model_lower:
+        return 128_000
+    if "command" in model_lower:
+        return 128_000
+    return _DEFAULT_CONTEXT_LENGTH
+
+
+def _estimate_history_tokens(messages: list) -> int:
+    """Rough token count for history analysis. Delegates to BudgetScanner."""
+    return BudgetScanner._estimate_tokens(messages)
+
+
+def rtk_ck_pre_turn(
+    session_id: str = "",
+    user_message: str = "",
+    conversation_history: Optional[list] = None,
+    model: str = "",
+    **kwargs: Any,
+) -> Optional[Dict[str, str]]:
+    """pre_llm_call hook: budget → growth → patterns → inject.
+
+    Args:
+        session_id: Current session identifier.
+        user_message: Original user message (pre-injection).
+        conversation_history: Full message history.
+        model: Model name for context length resolution.
+        **kwargs: Additional hook kwargs (ignored).
+
+    Returns:
+        Dict with "context" key if signal should be injected, or None.
+    """
+    if not conversation_history:
+        return None
+
+    context_length = _resolve_context_length(model)
+
+    # ── 1. Budget scan ────────────────────────────────────────────────
+    budget_signal = BudgetScanner.scan(
+        conversation_history,
+        context_length=context_length,
+    )
+    if budget_signal:
+        estimated = _estimate_history_tokens(conversation_history)
+        pct = budget_signal.count or 0
+        warning = (
+            f"⚠️ RTK-CK {budget_signal.code}: "
+            f"context is ~{pct}% full "
+            f"({estimated:,}/{context_length:,} tokens). "
+        )
+        if budget_signal.code == "BUDGET_HALT":
+            warning += "Circuit breaker — complete current task immediately."
+        elif budget_signal.code == "BUDGET_CRITICAL":
+            warning += "Consider compression or completing the task soon."
+        else:
+            warning += "Approaching budget limit."
+        logger.info("RTK-CK/%s: session=%s pct=%d", budget_signal.code, session_id, pct)
+        _metrics.record_signal(budget_signal.code)
+        return {"context": warning}
+
+    # ── 2. Growth scan ─────────────────────────────────────────────────
+    history_tokens = _estimate_history_tokens(conversation_history)
+    # Estimate the previous turn's contribution (last message in history)
+    last_turn_tokens = 0
+    if conversation_history:
+        last_msg = conversation_history[-1]
+        last_turn_tokens = _estimate_history_tokens([last_msg])
+
+    growth_signal = GrowthDetector.detect({
+        "turn_count": len(conversation_history),
+        "history_tokens": history_tokens,
+        "last_turn_tokens": last_turn_tokens,
+    })
+    if growth_signal:
+        logger.info(
+            "RTK-CK/%s: session=%s %s",
+            growth_signal.code, session_id, growth_signal.message,
+        )
+        _metrics.record_signal(growth_signal.code)
+        return {"context": f"⚠️ RTK-CK {growth_signal.code}: {growth_signal.message}"}
+
+    # ── 3. Pattern scan ────────────────────────────────────────────────
+    pattern_signals = PatternDetector.detect(conversation_history)
+    for sig in pattern_signals:
+        logger.info(
+            "RTK-CK/%s: session=%s %s",
+            sig.code, session_id, sig.message,
+        )
+        # Inject pattern warnings (highest priority after budget/growth)
+        _metrics.record_signal(sig.code)
+        return {
+            "context": (
+                f"⚠️ RTK-CK {sig.code}: {sig.message}"
+                + (" — circuit breaker, halt session." if sig.should_halt else "")
+            )
+        }
+
+    # ── 4. Compress stats ───────────────────────────────────────────────
+    # Run compressor and inject stats if significant savings achieved
+    try:
+        from plugins.rtk_ck.compress import Compressor as _Compressor
+        _, stats = _Compressor.compress(
+            conversation_history,
+            config={"protect_last_n": 3, "collapse_pairs": True},
+            return_stats=True,
+        )
+        if stats.get("savings_pct", 0) > 20:
+            logger.info(
+                "RTK-CK/COMPRESS: session=%s savings=%s%%",
+                session_id, stats["savings_pct"],
+            )
+            return {
+                "context": (
+                    f"📦 RTK-CK COMPRESS: history can be reduced {stats['savings_pct']:.0f}% "
+                    f"({stats['original_tokens']:,} → {stats['compressed_tokens']:,} tokens). "
+                    f"Consider /compress."
+                )
+            }
+    except Exception:
+        pass  # Compression is best-effort
+
+    # ── 5. Prefetch cache ────────────────────────────────────────────────
+    prefetch_text = kwargs.get("prefetch_text")
+    prefetch_query = kwargs.get("prefetch_query", user_message)
+    if prefetch_text is not None:
+        stale_signal = _prefetch_cache.check_and_record(
+            prefetch_query, prefetch_text, session_id=session_id
+        )
+        if stale_signal:
+            logger.info("RTK-CK/PREFETCH_STALE: session=%s", session_id)
+            _metrics.record_signal(stale_signal.code)
+            return {"context": f"⚠️ RTK-CK {stale_signal.code}: {stale_signal.message}"}
+
+    # ── 6. Dedup volatile vs prefetch ──────────────────────────────────
+    volatile_text = kwargs.get("volatile_text")
+    if volatile_text and prefetch_text:
+        from plugins.rtk_ck.dedup import Deduplicator as _Dedup
+        deduped = _Dedup.dedup(volatile_text, prefetch_text)
+        if deduped != prefetch_text:
+            saved_chars = len(prefetch_text) - len(deduped)
+            logger.info(
+                "RTK-CK/DEDUP: session=%s saved %d chars (dedup volatile vs prefetch)",
+                session_id, saved_chars,
+            )
+            _metrics.record_dedup(saved_chars)
+            return {"context": f"📦 RTK-CK DEDUP: removed ~{saved_chars} duplicate chars from prefetch"}
+
+    return None
+
+
+def register(ctx: Any) -> None:
+    """Register the RTK-CK pre_llm_call hook and tools."""
+    ctx.register_hook("pre_llm_call", rtk_ck_pre_turn)
+
+    # Register rtk_ck_stat tool
+    ctx.register_tool(
+        name="rtk_ck_stat",
+        toolset="default",
+        schema={
+            "type": "object",
+            "properties": {
+                "format": {
+                    "type": "string",
+                    "enum": ["text", "json"],
+                    "default": "text",
+                    "description": "Output format: text or json",
+                },
+                "reset": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Reset stats after reading",
+                },
+            },
+        },
+        handler=_handle_rtk_ck_stat,
+        emoji="📊",
+    )
+
+    logger.info("RTK-CK plugin registered: pre_llm_call hook, rtk_ck_stat tool")
+
+
+# ---------------------------------------------------------------------------
+# rtk_ck_stat tool
+# ---------------------------------------------------------------------------
+
+def _handle_rtk_ck_stat(format: str = "text", reset: bool = False, **_: Any) -> str:
+    """Handle rtk_ck_stat tool call — return RTK-CK metrics."""
+    import json as _json
+    from plugins.rtk_ck.metrics import _metrics, format_stat_line
+
+    m = _metrics.get_metrics()
+
+    if reset:
+        _metrics.reset()
+
+    if format == "json":
+        return _json.dumps(m, indent=2, ensure_ascii=False)
+
+    return format_stat_line(m)
