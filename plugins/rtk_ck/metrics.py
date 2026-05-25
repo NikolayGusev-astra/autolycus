@@ -45,6 +45,8 @@ class MetricsCollector:
             self._pattern_signals += 1
         elif code == "PREFETCH_STALE":
             self._prefetch_stale_signals += 1
+        elif code == "CACHE_HIT":
+            self._cache_hits = getattr(self, '_cache_hits', 0) + 1
 
     def record_pattern(self, code: str) -> None:
         """Record a pattern detection."""

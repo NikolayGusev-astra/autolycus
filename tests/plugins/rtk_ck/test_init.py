@@ -48,10 +48,12 @@ class TestRegister:
         ctx = MagicMock()
         register(ctx)
 
-        # Verify register_hook was called exactly once with pre_llm_call
-        ctx.register_hook.assert_called_once()
-        args, _ = ctx.register_hook.call_args
-        assert args[0] == "pre_llm_call"
+        # Verify all three hooks were registered
+        assert ctx.register_hook.call_count == 3
+        hook_calls = [call[0][0] for call in ctx.register_hook.call_args_list]
+        assert "pre_llm_call" in hook_calls
+        assert "pre_tool_call" in hook_calls
+        assert "post_tool_call" in hook_calls
 
 
 class TestPreTurnHook:
@@ -361,3 +363,63 @@ class TestCountLastTurnTokens:
         result = _count_last_turn_tokens(msgs)
         from plugins.rtk_ck.budget import BudgetScanner
         assert result == BudgetScanner._estimate_tokens(msgs)
+
+
+class TestPreToolCallHook:
+    """Integration tests for rtk_ck_pre_tool_call hook."""
+
+    def test_cache_hit_blocks_read_file(self):
+        """read_file with cached result → returns cached content, blocks call."""
+        from plugins.rtk_ck import rtk_ck_pre_tool_call, rtk_ck_post_tool_call
+
+        args = {"path": "/etc/hosts"}
+        # Simulate: first call stores result
+        rtk_ck_post_tool_call("read_file", args, "127.0.0.1 localhost")
+        # Second call should hit cache
+        result = rtk_ck_pre_tool_call("read_file", args)
+        assert result == "127.0.0.1 localhost"
+
+    def test_cache_miss_allows_read_file(self):
+        """read_file with no cache → returns None (proceed normally)."""
+        from plugins.rtk_ck import rtk_ck_pre_tool_call
+
+        result = rtk_ck_pre_tool_call("read_file", {"path": "/nonexistent"})
+        assert result is None
+
+    def test_write_invalidates_cache(self):
+        """write_file on cached path → invalidates cache."""
+        from plugins.rtk_ck import rtk_ck_pre_tool_call, rtk_ck_post_tool_call
+
+        args = {"path": "/etc/hosts"}
+        rtk_ck_post_tool_call("read_file", args, "old content")
+        # Write to same path
+        rtk_ck_pre_tool_call("write_file", args)
+        # Cache should be invalidated
+        result = rtk_ck_pre_tool_call("read_file", args)
+        assert result is None
+
+    def test_non_cacheable_tool_not_blocked(self):
+        """terminal/execute_code are never blocked by cache."""
+        from plugins.rtk_ck import rtk_ck_pre_tool_call
+
+        result = rtk_ck_pre_tool_call("terminal", {"command": "ls"})
+        assert result is None
+
+    def test_string_args_parsed(self):
+        """Args passed as JSON string are parsed correctly."""
+        from plugins.rtk_ck import rtk_ck_pre_tool_call, rtk_ck_post_tool_call
+
+        import json
+        args_str = json.dumps({"path": "/etc/hosts"})
+        rtk_ck_post_tool_call("read_file", args_str, "content")
+        result = rtk_ck_pre_tool_call("read_file", args_str)
+        assert result == "content"
+
+    def test_post_tool_call_stores_result(self):
+        """post_tool_call stores result for future cache hits."""
+        from plugins.rtk_ck import rtk_ck_pre_tool_call, rtk_ck_post_tool_call
+        from plugins.rtk_ck import _result_cache
+
+        args = {"path": "/tmp/test-file"}
+        rtk_ck_post_tool_call("read_file", args, "stored content")
+        assert _result_cache.check("read_file", args) == "stored content"
