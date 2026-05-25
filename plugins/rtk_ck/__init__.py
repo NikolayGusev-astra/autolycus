@@ -53,6 +53,22 @@ def _estimate_history_tokens(messages: list) -> int:
     return BudgetScanner._estimate_tokens(messages)
 
 
+def _count_last_turn_tokens(messages: list) -> int:
+    """Count tokens in the current turn (from the last user message onward).
+
+    A "turn" in OpenAI format is: user → assistant → tool → assistant → ... → assistant.
+    Everything after (and including) the most recent user message belongs to the current turn.
+    """
+    if not messages:
+        return 0
+    # Find the last user message
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].get("role") == "user":
+            return BudgetScanner._estimate_tokens(messages[i:])
+    # No user message found — treat entire history as the turn
+    return BudgetScanner._estimate_tokens(messages)
+
+
 def rtk_ck_pre_turn(
     session_id: str = "",
     user_message: str = "",
@@ -102,11 +118,8 @@ def rtk_ck_pre_turn(
 
     # ── 2. Growth scan ─────────────────────────────────────────────────
     history_tokens = _estimate_history_tokens(conversation_history)
-    # Estimate the previous turn's contribution (last message in history)
-    last_turn_tokens = 0
-    if conversation_history:
-        last_msg = conversation_history[-1]
-        last_turn_tokens = _estimate_history_tokens([last_msg])
+    # Count tokens added in the current turn (from last user message onward)
+    last_turn_tokens = _count_last_turn_tokens(conversation_history)
 
     growth_signal = GrowthDetector.detect({
         "turn_count": len(conversation_history),
