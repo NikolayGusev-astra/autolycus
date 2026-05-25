@@ -39,7 +39,7 @@ class MetricsCollector:
         """Record a signal (budget, growth, pattern, etc.)."""
         if code.startswith("BUDGET_"):
             self._budget_signals += 1
-        elif code.startswith("GROWTH_"):
+        elif code.startswith("GROWTH_") or code == "TURN_COST_WARNING":
             self._growth_signals += 1
         elif code in ("REDUNDANT_READS", "STALLED_SESSION"):
             self._pattern_signals += 1
