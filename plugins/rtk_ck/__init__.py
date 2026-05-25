@@ -17,6 +17,7 @@ from plugins.rtk_ck.budget import BudgetScanner
 from plugins.rtk_ck.growth import GrowthDetector
 from plugins.rtk_ck.patterns import PatternDetector
 from plugins.rtk_ck.prefetch_cache import _prefetch_cache
+from plugins.rtk_ck.result_cache import ResultCache, INVALIDATING_TOOLS, _summarize_args
 from plugins.rtk_ck.metrics import get_metrics_collector
 
 _metrics = get_metrics_collector()
@@ -24,6 +25,9 @@ _metrics = get_metrics_collector()
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CONTEXT_LENGTH = 128_000
+
+# Module-level ResultCache instance (shared across all sessions in this process)
+_result_cache = ResultCache()
 
 def _resolve_context_length(model: str) -> int:
     """Get context length for a model using the agent's metadata resolver.
@@ -198,9 +202,93 @@ def rtk_ck_pre_turn(
     return None
 
 
+def rtk_ck_pre_tool_call(
+    function_name: str = "",
+    function_args: dict | str = None,
+    session_id: str = "",
+    **kwargs: Any,
+) -> Optional[str]:
+    """pre_tool_call hook: check ResultCache before tool execution.
+
+    If a cacheable tool (read_file, search_files) was already called with the
+    same arguments in this session, return the cached result to prevent the
+    actual tool call from consuming tokens.
+
+    For write tools (write_file, patch, terminal), invalidate any cached
+    reads of the affected file path.
+
+    Returns:
+        Cached result string to use instead of executing the tool, or None
+        to proceed with normal execution.
+    """
+    if function_args is None:
+        function_args = {}
+
+    # Parse args if they arrive as a JSON string
+    if isinstance(function_args, str):
+        try:
+            import json as _json
+            function_args = _json.loads(function_args) if function_args else {}
+        except Exception:
+            function_args = {}
+
+    # Invalidate cache on write operations
+    if function_name in INVALIDATING_TOOLS:
+        path = function_args.get("path", "")
+        if path:
+            invalidated = _result_cache.invalidate(path)
+            if invalidated:
+                logger.info(
+                    "RTK-CK/INVALIDATE: %s on %s removed %d cache entries",
+                    function_name, path, invalidated,
+                )
+        return None
+
+    # Check cache for read operations
+    cached = _result_cache.check(function_name, function_args)
+    if cached is not None:
+        logger.info(
+            "RTK-CK/CACHE_HIT: %s(%s) — blocking tool call, returning cached result (%d chars)",
+            function_name, _summarize_args(function_args), len(cached),
+        )
+        _metrics.record_signal("CACHE_HIT")
+        return cached
+
+    return None
+
+
+def rtk_ck_post_tool_call(
+    function_name: str = "",
+    function_args: dict | str = None,
+    tool_result: str = "",
+    session_id: str = "",
+    **kwargs: Any,
+) -> None:
+    """post_tool_call hook: store successful read results in cache.
+
+    Called after tool execution to cache idempotent results for future reuse.
+    """
+    if not tool_result:
+        return
+
+    if function_args is None:
+        function_args = {}
+
+    if isinstance(function_args, str):
+        try:
+            import json as _json
+            function_args = _json.loads(function_args) if function_args else {}
+        except Exception:
+            function_args = {}
+
+    _result_cache.store(function_name, function_args, tool_result)
+
+
 def register(ctx: Any) -> None:
-    """Register the RTK-CK pre_llm_call hook and tools."""
+    """Register RTK-CK hooks and tools."""
     ctx.register_hook("pre_llm_call", rtk_ck_pre_turn)
+    ctx.register_hook("pre_tool_call", rtk_ck_pre_tool_call)
+    ctx.register_hook("post_tool_call", rtk_ck_post_tool_call)
 
     # Register rtk_ck_stat tool
     ctx.register_tool(
@@ -226,7 +314,7 @@ def register(ctx: Any) -> None:
         emoji="📊",
     )
 
-    logger.info("RTK-CK plugin registered: pre_llm_call hook, rtk_ck_stat tool")
+    logger.info("RTK-CK plugin registered: pre_llm_call, pre_tool_call, post_tool_call hooks, rtk_ck_stat tool")
 
 
 # ---------------------------------------------------------------------------
