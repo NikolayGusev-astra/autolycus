@@ -9,6 +9,7 @@ Pure functions. No I/O.
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from typing import Any, Dict, List, Optional
 
@@ -17,18 +18,60 @@ from plugins.rtk.pattern import Signal
 DEFAULT_REDUNDANT_READ_THRESHOLD = 3
 DEFAULT_STALLED_THRESHOLD = 3
 
-# Tool results containing error indicators
-_ERROR_INDICATORS = ("error", "traceback", "exception", "failed", "timeout", "denied", "forbidden")
+# Patterns that look like errors but are actually normal tool output
+_FALSE_POSITIVE_PATTERNS = (
+    r'"error"\s*:\s*(null|false|0)\b',
+    r'"exit_code"\s*:\s*0\b',
+    r'"exit_code"\s*:\s*"0"',
+    r'stderr\s*:\s*["\']["\']',
+    r'an error occurred.*resolved',
+    r'no error',
+    r'without error',
+    r'error[-_]?free',
+)
+
+# Strong error indicators (high confidence)
+_STRONG_ERRORS = ("traceback", "exception:", "failed with exit", "denied", "forbidden", "refused")
+
+# Weak error indicators (only count if not a false positive)
+_WEAK_ERRORS = ("error:", "failed:", "timeout")
 
 
 def _is_tool_result_error(content: str) -> bool:
-    """Heuristic: does this tool result look like an error?"""
+    """Heuristic: does this tool result look like a real tool error?
+
+    Distinguishes actual failures (Traceback, command failed, denied)
+    from normal output that happens to contain the word "error"
+    (e.g. "error": null, exit_code: 0, stderr: "").
+    """
     if not content:
         return False
-    lower = content.lower()
-    for indicator in _ERROR_INDICATORS:
+
+    stripped = content.strip()
+    lower = stripped.lower()
+
+    # 1. Strong signals — always count as errors
+    for indicator in _STRONG_ERRORS:
         if indicator in lower:
             return True
+
+    # 2. Check for command failure patterns: "exit_code: N" where N != 0
+    exit_match = re.search(r'"exit_code"\s*:\s*(\d+)', stripped)
+    if exit_match:
+        code = int(exit_match.group(1))
+        if code != 0:
+            return True
+
+    # 3. Check for real "error" messages (not JSON null/false)
+    for pattern in _FALSE_POSITIVE_PATTERNS:
+        if re.search(pattern, lower):
+            return False
+
+    # 4. Weak signals — "error:", "failed:", "timeout" — only if not filtered above
+    for indicator in _WEAK_ERRORS:
+        if indicator in lower:
+            return True
+
     return False
 
 
