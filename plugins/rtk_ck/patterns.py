@@ -76,7 +76,11 @@ def _is_tool_result_error(content: str) -> bool:
 
 
 def _extract_read_path(tool_call: Optional[dict]) -> Optional[str]:
-    """Extract the path argument from a read_file tool call."""
+    """Extract the path + offset + limit from a read_file tool call.
+
+    Includes offset/limit so that reading the same file in chunks
+    (different offsets) is NOT flagged as REDUNDANT_READS.
+    """
     if not isinstance(tool_call, dict):
         return None
     func = tool_call.get("function")
@@ -86,7 +90,13 @@ def _extract_read_path(tool_call: Optional[dict]) -> Optional[str]:
         return None
     try:
         args = json.loads(func.get("arguments", "{}"))
-        return args.get("path")
+        path = args.get("path")
+        if not path:
+            return None
+        # Include offset/limit in the key so chunked reads are not duplicates
+        offset = args.get("offset", 1)
+        limit = args.get("limit", 500)
+        return f"{path}:o={offset}:l={limit}"
     except (json.JSONDecodeError, TypeError):
         return None
 

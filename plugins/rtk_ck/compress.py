@@ -6,10 +6,11 @@ Rules:
   - user messages: always preserved (protect_first_n)
   - assistant (text): keep AS-IS (protect_last_n)
   - assistant (tool_calls): collapsed with paired tool_result
-  - tool (result >5K chars): head(500) + tail(500) + marker
-  - tool (result ≤5K): keep AS-IS
+  - tool (result >8K chars): head(500) + tail(500) + marker
+  - tool (result ≤8K): keep AS-IS
   - tool (error): collapse to summary
   - tool (RTK store): replace with pointer (when rtk_store_enabled)
+  - tool (MCP/RAG): NEVER compressed (configurable via non_compressible_tools)
 """
 from __future__ import annotations
 
@@ -20,12 +21,18 @@ DEFAULT_TOOL_HEAD_CHARS = 500
 DEFAULT_TOOL_TAIL_CHARS = 500
 DEFAULT_PROTECT_FIRST_N = 2
 DEFAULT_PROTECT_LAST_N = 3
-DEFAULT_SMALL_RESULT_MAX = 5_000  # chars
+DEFAULT_SMALL_RESULT_MAX = 8_000  # chars — results ≤ this are kept as-is (was 5000)
+
 COMPRESSED_MARKER = "   ... [compressed by RTK-CK] ..."
 POINTER_MARKER = "RTK-CK: compressed — id={uuid}"
 
 # Minimum content size for RTK store pointer (4K chars)
 _POINTER_MIN_CHARS = 4_000
+
+# Tools whose results should NEVER be compressed (MCP, RAG, etc.)
+# Any tool with name starting with "mcp_" is considered MCP and not compressed.
+# Configurable via config.yaml: compress.mcp_tool_prefixes (list of prefixes)
+DEFAULT_MCP_TOOL_PREFIXES = ("mcp_",)
 
 
 def _rtk_store_save(content: str, cache_dir: Optional[str] = None) -> Optional[str]:
@@ -285,6 +292,14 @@ class Compressor:
                     result.append(collapsed)
                 elif msg_type == "tool_result":
                     content = msg.get("content", "")
+                    tool_name = msg.get("name", "")
+                    mcp_prefixes = cfg.get("mcp_tool_prefixes", DEFAULT_MCP_TOOL_PREFIXES)
+
+                    # MCP/RAG tools: never compress (identified by name prefix)
+                    if any(tool_name.startswith(p) for p in mcp_prefixes):
+                        result.append(dict(msg))
+                        continue
+
                     # Try pointer compression first
                     rtk_enabled = cfg.get("rtk_store_enabled", False)
                     rtk_cache = cfg.get("rtk_cache_dir")

@@ -84,7 +84,7 @@ class ResultCache:
         entry = self._cache.get(key)
 
         if entry is None:
-            self._miss_count += 0
+            self._miss_count += 1
             return None
 
         cached_result, callsite, remaining = entry
