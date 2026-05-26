@@ -324,7 +324,7 @@ def register(ctx: Any) -> None:
 def _handle_rtk_ck_stat(format: str = "text", reset: bool = False, **_: Any) -> str:
     """Handle rtk_ck_stat tool call — return RTK-CK metrics."""
     import json as _json
-    from plugins.rtk_ck.metrics import _metrics, format_stat_line
+    from plugins.rtk_ck.metrics import format_stat_line
 
     m = _metrics.get_metrics()
 
