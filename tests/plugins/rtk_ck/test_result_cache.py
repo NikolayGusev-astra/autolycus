@@ -68,6 +68,27 @@ class TestResultCacheHitMiss:
         assert stats["hits"] == 1
         assert stats["blocks"] == 1
 
+    def test_miss_count_increments(self):
+        """Each cache miss should increment miss_count."""
+        cache = self._fresh_cache()
+        # 3 misses for different paths
+        cache.check("read_file", {"path": "/a"})
+        cache.check("read_file", {"path": "/b"})
+        cache.check("read_file", {"path": "/c"})
+        stats = cache.stats
+        assert stats["misses"] == 3
+        assert stats["hits"] == 0
+
+    def test_miss_then_hit_counts_both(self):
+        """Miss followed by hit should show both counters."""
+        cache = self._fresh_cache()
+        cache.check("read_file", {"path": "/x"})  # miss
+        cache.store("read_file", {"path": "/x"}, "data")
+        cache.check("read_file", {"path": "/x"})  # hit
+        stats = cache.stats
+        assert stats["misses"] == 1
+        assert stats["hits"] == 1
+
     def test_non_cacheable_tool_always_miss(self):
         """terminal/execute_code are not in CACHEABLE_TOOLS → always miss."""
         cache = self._fresh_cache()
