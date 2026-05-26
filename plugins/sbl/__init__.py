@@ -517,29 +517,32 @@ def _on_session_start(**kwargs) -> None:
         except OSError:
             need_deep = True
     
-    # Phase 2: Deep audit (fd + rg + cert) — only on first run
-    try:
-        from plugins.sbl.deep_audit import _audit, format_summary
-        data = _audit()
-        summary = format_summary(data)
-        logger.info("[SBL] Deep audit complete — %d services, %d configs, %d cert users",
-                    len(data['services']), data['configs_total'], len(data['cert_users']))
-        # Сохраняем deep audit результаты в service_map
-        for svc, info in data['services'].items():
-            if svc not in _service_map.services:
-                _service_map.services[svc] = {}
-            if info.get('ports'):
-                _service_map.services[svc]['ports'] = info['ports']
-            if info.get('cross'):
-                _service_map.services[svc]['cross'] = info['cross']
-        # Персист — единая точка сохранения
-        _save_learned(_service_map.services, _service_map.file_owners, data)
-        # Возвращаем сводку через logger — она попадёт в контекст агента
-        logger.info("[SBL] === DEEP AUDIT SUMMARY ===\n%s", summary)
-    except ImportError as e:
-        logger.warning("[SBL] Deep audit unavailable (fd/rg not installed?): %s", e)
-    except Exception as e:
-        logger.warning("[SBL] Deep audit failed: %s", e)
+    # Phase 2: Deep audit (fd + rg + cert) — only if needed
+    if not need_deep:
+        logger.info("[SBL] Deep audit skipped — learned_deps.json is fresh")
+    else:
+        try:
+            from plugins.sbl.deep_audit import _audit, format_summary
+            data = _audit()
+            summary = format_summary(data)
+            logger.info("[SBL] Deep audit complete — %d services, %d configs, %d cert users",
+                        len(data['services']), data['configs_total'], len(data['cert_users']))
+            # Сохраняем deep audit результаты в service_map
+            for svc, info in data['services'].items():
+                if svc not in _service_map.services:
+                    _service_map.services[svc] = {}
+                if info.get('ports'):
+                    _service_map.services[svc]['ports'] = info['ports']
+                if info.get('cross'):
+                    _service_map.services[svc]['cross'] = info['cross']
+            # Персист — единая точка сохранения
+            _save_learned(_service_map.services, _service_map.file_owners, data)
+            # Возвращаем сводку через logger — она попадёт в контекст агента
+            logger.info("[SBL] === DEEP AUDIT SUMMARY ===\n%s", summary)
+        except ImportError as e:
+            logger.warning("[SBL] Deep audit unavailable (fd/rg not installed?): %s", e)
+        except Exception as e:
+            logger.warning("[SBL] Deep audit failed: %s", e)
 
 
 # ── SBL Commands ───────────────────────────────────────────────────────────
