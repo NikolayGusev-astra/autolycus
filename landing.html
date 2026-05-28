@@ -197,8 +197,9 @@
   <div class="nav-links">
     <a href="#features">Возможности</a>
     <a href="https://github.com/NikolayGusev-astra/autolycus">GitHub</a>
-    <a href="/rtk-v2-architecture.html">RTK v2</a>
-    <a href="/governance-architecture.html" style="color:#d4a843;">Governance</a>
+    <a href="/clarity-protocol-architecture.html">Clarity Protocol</a>
+    <a href="/rtk-v2-architecture.html">RTK v3</a>
+    <a href="/governance-architecture.html">Governance</a>
     <a href="/temporal-awareness-architecture.html">Temporal Awareness</a>
     <a href="/en/index.html" style="color:#8a8578;">EN</a>
     <a href="/" class="lang-switch" style="color:#d4a843;font-weight:600;">RU</a>
@@ -224,7 +225,7 @@
       <div class="hero-buttons">
         <a href="#install" class="btn btn-primary">Установить →</a>
         <a href="https://github.com/NikolayGusev-astra/autolycus" class="btn btn-glass">GitHub</a>
-        <a href="/rtk-v2-architecture.html" class="btn btn-glass">RTK v2</a>
+        <a href="/rtk-v2-architecture.html" class="btn btn-glass">RTK v3</a>
         <a href="/governance-architecture.html" class="btn btn-glass">Governance</a>
         <a href="/temporal-awareness-architecture.html" class="btn btn-glass">Temporal Awareness</a>
       </div>
@@ -267,6 +268,12 @@
   <h2>✦ Возможности</h2>
   <div class="features-grid">
     <div class="feat-card">
+      <div class="icon">☿</div>
+      <h3>Clarity Protocol</h3>
+      <p>SHA-256 dependency graph для документов планирования. Автоматически отслеживает stale-документы при изменении upstream. 6 специализированных thinker-lenses для failure analysis. Premortem + Prism integration.</p>
+      <p style="margin-top: 0.5rem; font-size: 0.85rem; color: #a09880;"><a href="/clarity-protocol-architecture.html" style="color:var(--ac-amber);text-decoration:none;">Архитектура →</a></p>
+    </div>
+    <div class="feat-card">
       <div class="icon">⚕</div>
       <h3>Безопасность</h3>
       <p>Governance Coordinator — единый pre_tool_call: объединяет RTK circuit breaker, SBL разведку и Policy Engine в 4 режимах (off → audit → simulate → enforce).</p>
@@ -274,7 +281,7 @@
     <div class="feat-card">
       <div class="icon">✦</div>
       <h3>Производительность</h3>
-      <p>RTK v2: сжимает вывод инструментов до 84%. Автоматически детектирует зацикливания, серийные ошибки и перерасход бюджета — при критических аномалиях останавливает сессию.</p>
+      <p>RTK v3: type-aware сжатия вывода инструментов. 6 детекторов — budget, growth, patterns, dedup, result_cache, prefetch. Circuit breaker при критических аномалиях.</p>
     </div>
     <div class="feat-card">
       <div class="icon">☿</div>
@@ -295,7 +302,8 @@
     <div class="feat-card">
       <div class="icon">☿</div>
       <h3>Архитектура</h3>
-      <p><a href="/rtk-v2-architecture.html" style="color:var(--ac-amber);text-decoration:none;">RTK v2 →</a><br>
+      <p><a href="/clarity-protocol-architecture.html" style="color:var(--ac-amber);text-decoration:none;">Clarity Protocol →</a><br>
+      <a href="/rtk-v2-architecture.html" style="color:var(--ac-amber);text-decoration:none;">RTK v3 →</a><br>
       <a href="/governance-architecture.html" style="color:var(--ac-amber);text-decoration:none;">Governance Coordinator →</a></p>
     </div>
   </div>

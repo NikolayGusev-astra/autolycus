@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clarity Protocol — Architecture</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: #0a0a0a;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    .header { margin-bottom: 2rem; }
+    .header-row {
+      display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem;
+    }
+    .pulse-dot {
+      width: 12px; height: 12px; background: #22d3ee;
+      border-radius: 50%; animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; } 50% { opacity: 0.5; }
+    }
+    h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; }
+    .subtitle {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.9rem; color: #8a8578; margin-top: 0.25rem;
+    }
+    .badge {
+      display: inline-block;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.7rem; color: #d4a843;
+      border: 1px solid rgba(212,168,67,0.2);
+      border-radius: 20px; padding: 0.2rem 0.6rem;
+      margin-bottom: 0.75rem; letter-spacing: 0.5px;
+    }
+    .gold { color: #d4a843; }
+    .diagram-box {
+      background: #0a0a0a;
+      border: 1px solid #1a1a1a;
+      border-radius: 20px;
+      padding: 2rem;
+      margin-bottom: 2rem;
+    }
+    /* Stats */
+    .stats {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 0.75rem; margin-top: 2rem;
+    }
+    .stat-card {
+      background: #111; border: 1px solid #1a1a1a;
+      border-radius: 14px; padding: 1.25rem; text-align: center;
+    }
+    .stat-card .num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.5rem; color: #d4a843; font-weight: 500;
+    }
+    .stat-card .desc {
+      font-size: 0.75rem; color: #8a8578; margin-top: 0.25rem;
+    }
+    /* Nav */
+    nav { display:flex;justify-content:space-between;align-items:center;padding:0.75rem 0;border-bottom:1px solid #1a1a1a;margin-bottom:1.5rem; }
+    nav a { color:#8a8578;text-decoration:none;font-size:0.8rem;font-family:'Inter',sans-serif; }
+    nav a.active { color:#d4a843;font-weight:600; }
+    nav .current { color:#d4a843;font-size:0.8rem;font-family:'Inter',sans-serif; }
+    @media (max-width: 640px) {
+      .stats { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div style="max-width:1000px;width:100%;margin:0 auto;padding:0 1rem;">
+    <nav>
+      <span style="color:#d4a843;font-family:Inter,sans-serif;font-size:0.85rem;">☿ Autolycus</span>
+      <div style="display:flex;gap:1rem;align-items:center;">
+        <a href="https://autolycus-agent.ru">Home</a>
+        <a href="https://autolycus-agent.ru/#features">Features</a>
+        <span class="current">Clarity Protocol</span>
+        <span style="color:#8a8578;">|</span>
+        <a href="/clarity-protocol-architecture.html" style="color:#d4a843;font-weight:600;text-decoration:none;font-size:0.8rem;">RU</a>
+      </div>
+    </nav>
+  </div>
+  <div class="header">
+    <div class="badge">☿ Autolycus · Planning Integrity</div>
+    <h1><span class="gold">Clarity Protocol</span></h1>
+    <p class="subtitle">SHA-256 dependency graph для документов планирования —<br>автоматическое обнаружение stale-документов при изменении upstream</p>
+  </div>
+
+  <div class="diagram-box">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 620" width="100%" height="auto" style="max-width:900px;margin:0 auto;">
+      <defs>
+        <linearGradient id="flowGrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#d4a843" stop-opacity="0.3"/>
+          <stop offset="100%" stop-color="#d4a843" stop-opacity="0.8"/>
+        </linearGradient>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="3" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <style>
+          .bg { fill: #0a0a0a; }
+          .card { fill: #111; stroke: #1a1a1a; stroke-width: 1.5; rx: 14; ry: 14; }
+          .card-glow { fill: #111; stroke: rgba(212,168,67,0.2); stroke-width: 1.5; rx: 14; ry: 14; }
+          .card-warn { fill: #111; stroke: #d4a843; stroke-width: 1.5; rx: 14; ry: 14; }
+          .card-stale { fill: #1a1111; stroke: #8a5a3a; stroke-width: 1.5; rx: 14; ry: 14; }
+          .title { font-family: 'Inter', sans-serif; font-size: 11px; fill: #8a8578; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
+          .label { font-family: 'Inter', sans-serif; font-size: 12px; fill: #f0ece4; font-weight: 500; }
+          .sub-label { font-family: 'Inter', sans-serif; font-size: 10px; fill: #8a8578; }
+          .mono { font-family: 'JetBrains Mono', monospace; font-size: 9px; fill: #8a8578; }
+          .link { stroke: #d4a843; stroke-width: 1.5; }
+          .link-flow { stroke: #d4a843; stroke-width: 1.2; opacity: 0.5; }
+          .link-dashed { stroke: #8a8578; stroke-width: 1; stroke-dasharray: 4 3; }
+          .arrow { fill: #d4a843; }
+          .arrow-flow { fill: #d4a843; }
+        </style>
+      </defs>
+
+      <!-- Background -->
+      <rect class="bg" width="900" height="620" rx="20"/>
+
+      <!-- TITLE -->
+      <text x="450" y="35" class="title" text-anchor="middle">Clarity Protocol — Dependency Graph &amp; Stale Detection</text>
+
+      <!-- ═══ LEFT: Document Pipeline ═══ -->
+
+      <!-- Phase 1: Problem -->
+      <rect class="card-glow" x="30" y="60" width="200" height="70"/>
+      <text x="130" y="82" class="label" text-anchor="middle">1. Problem</text>
+      <text x="130" y="98" class="sub-label" text-anchor="middle">goal/problem.md</text>
+      <text x="130" y="115" class="mono" text-anchor="middle">SHA-256 recorded</text>
+
+      <!-- Phase 2: Stakeholders -->
+      <rect class="card" x="30" y="150" width="200" height="55"/>
+      <text x="130" y="172" class="label" text-anchor="middle">2. Stakeholders</text>
+      <text x="130" y="188" class="sub-label" text-anchor="middle">goal/stakeholders.md</text>
+      <text x="130" y="220" class="mono" text-anchor="middle" style="display:none"/>
+
+      <!-- Phase 3: Requirements -->
+      <rect class="card" x="30" y="225" width="200" height="55"/>
+      <text x="130" y="247" class="label" text-anchor="middle">3. Requirements</text>
+      <text x="130" y="263" class="sub-label" text-anchor="middle">goal/requirements.md</text>
+
+      <!-- Phase 4: Solution -->
+      <rect class="card" x="30" y="300" width="200" height="55"/>
+      <text x="130" y="322" class="label" text-anchor="middle">4. Solution</text>
+      <text x="130" y="338" class="sub-label" text-anchor="middle">solution/solution.md</text>
+
+      <!-- Phase 5: Architecture + Failures -->
+      <rect class="card" x="30" y="375" width="200" height="55"/>
+      <text x="130" y="397" class="label" text-anchor="middle">5. Architecture</text>
+      <text x="130" y="413" class="sub-label" text-anchor="middle">solution/architecture.md</text>
+
+      <rect class="card-stale" x="30" y="450" width="200" height="55"/>
+      <text x="130" y="472" class="label" text-anchor="middle">6. Failures</text>
+      <text x="130" y="488" class="sub-label" text-anchor="middle">failures/failures.md</text>
+
+      <!-- Dependency arrows (LEFT column) -->
+      <path class="link-flow" d="M130,130 L130,150"/>
+      <circle class="arrow-flow" cx="130" cy="146" r="3"/>
+      <path class="link-flow" d="M130,205 L130,225"/>
+      <circle class="arrow-flow" cx="130" cy="221" r="3"/>
+      <path class="link-flow" d="M130,280 L130,300"/>
+      <circle class="arrow-flow" cx="130" cy="296" r="3"/>
+      <path class="link-flow" d="M130,355 L130,375"/>
+      <circle class="arrow-flow" cx="130" cy="371" r="3"/>
+      <path class="link-flow" d="M130,430 L130,450"/>
+      <circle class="arrow-flow" cx="130" cy="446" r="3"/>
+
+      <!-- Cross-dependencies (dashed) -->
+      <path class="link-dashed" d="M230,85 L260,85 L260,170 L230,170"/>
+      <path class="link-dashed" d="M230,240 L270,240 L270,315 L230,315"/>
+      <path class="link-dashed" d="M230,395 L270,395 L270,465 L230,465" style="stroke:#d4a843;stroke-dasharray:4 3;"/>
+
+      <!-- ═══ CENTER: Stale Detection Engine ═══ -->
+      <rect class="card-warn" x="320" y="150" width="260" height="180"/>
+      <text x="450" y="175" class="label" text-anchor="middle">Stale Detection Engine</text>
+      <text x="450" y="195" class="sub-label" text-anchor="middle">plugins/clarity_packet/</text>
+      <text x="450" y="215" class="mono" text-anchor="middle">packet_status.py</text>
+      <text x="450" y="235" class="sub-label" text-anchor="middle">┌──────────────────────┐</text>
+      <text x="450" y="250" class="mono" text-anchor="middle">│ SHA-256 Comparison  │</text>
+      <text x="450" y="265" class="mono" text-anchor="middle">│ Dependency Graph    │</text>
+      <text x="450" y="280" class="mono" text-anchor="middle">│ BFS Walk           │</text>
+      <text x="450" y="295" class="mono" text-anchor="middle">│ Decision Triggers  │</text>
+      <text x="450" y="310" class="sub-label" text-anchor="middle">└──────────────────────┘</text>
+
+      <!-- Arrows from documents to engine -->
+      <path class="link-flow" d="M230,95 L280,95 L280,200 L320,200"/>
+      <circle class="arrow-flow" cx="316" cy="200" r="3"/>
+      <path class="link-flow" d="M230,177 L270,177 L270,240 L320,240"/>
+      <circle class="arrow-flow" cx="316" cy="240" r="3"/>
+      <path class="link-flow" d="M230,327 L270,327 L270,280 L320,280"/>
+      <circle class="arrow-flow" cx="316" cy="280" r="3"/>
+
+      <!-- Arrow from engine to injection -->
+      <path class="link" d="M580,240 L620,240"/>
+      <circle class="arrow" cx="616" cy="240" r="3"/>
+
+      <!-- ═══ RIGHT: Hook Injection ═══ -->
+      <rect class="card-warn" x="620" y="150" width="250" height="180"/>
+      <text x="745" y="175" class="label" text-anchor="middle">pre_llm_call Hook</text>
+      <text x="745" y="195" class="sub-label" text-anchor="middle">clarity_pre_turn()</text>
+      <text x="745" y="220" class="sub-label" text-anchor="middle">Injects into context:</text>
+      <text x="745" y="240" class="mono" text-anchor="middle">⚠ CLARITY STALENESS:</text>
+      <text x="745" y="255" class="mono" text-anchor="middle">  N docs need review</text>
+      <text x="745" y="275" class="mono" text-anchor="middle">⚠ DECISIONS NEED REVIEW:</text>
+      <text x="745" y="290" class="mono" text-anchor="middle">  decision-01: docs changed</text>
+      <text x="745" y="310" class="sub-label" text-anchor="middle">Zero overhead if no .clarity-protocol/</text>
+
+      <!-- ═══ BOTTOM LEFT: Thinker Lenses ═══ -->
+      <rect class="card" x="30" y="525" width="170" height="50"/>
+      <text x="115" y="545" class="label" text-anchor="middle">General</text>
+      <text x="115" y="562" class="sub-label" text-anchor="middle">Broad first-pass</text>
+
+      <rect class="card" x="210" y="525" width="170" height="50"/>
+      <text x="295" y="545" class="label" text-anchor="middle">Security</text>
+      <text x="295" y="562" class="sub-label" text-anchor="middle">AuthN/Z, injection</text>
+
+      <rect class="card" x="390" y="525" width="170" height="50"/>
+      <text x="475" y="545" class="label" text-anchor="middle">Human Factors</text>
+      <text x="475" y="562" class="sub-label" text-anchor="middle">User error, bias</text>
+
+      <rect class="card" x="570" y="525" width="170" height="50"/>
+      <text x="655" y="545" class="label" text-anchor="middle">Adversarial</text>
+      <text x="655" y="562" class="sub-label" text-anchor="middle">Threat actors</text>
+
+      <rect class="card" x="750" y="525" width="120" height="50"/>
+      <text x="810" y="545" class="label" text-anchor="middle">+2 more</text>
+      <text x="810" y="562" class="sub-label" text-anchor="middle">Catalog, Scanner</text>
+
+      <!-- Thinker label -->
+      <text x="450" y="515" class="title" text-anchor="middle">6 Thinker Lenses — Failure Analysis Perspectives</text>
+
+      <!-- ═══ BOTTOM RIGHT: Decision Reconsideration ═══ -->
+      <rect class="card" x="620" y="370" width="250" height="130"/>
+      <text x="745" y="395" class="label" text-anchor="middle">Decision Tracking</text>
+      <text x="745" y="415" class="mono" text-anchor="middle">decisionState in config.json</text>
+      <text x="745" y="435" class="sub-label" text-anchor="middle">Statuses: gathering → needed →</text>
+      <text x="745" y="450" class="sub-label" text-anchor="middle">decided → reconsideration-needed</text>
+      <text x="745" y="470" class="mono" text-anchor="middle">--related-docs tracks changes</text>
+      <text x="745" y="485" class="mono" text-anchor="middle">--triggers define conditions</text>
+
+      <!-- Arrow from document pipeline to decisions -->
+      <path class="link-dashed" d="M230,330 L450,330 L450,370 L620,420" style="stroke:#8a5a3a;"/>
+      <circle class="arrow-flow" cx="616" cy="420" r="3"/>
+
+    </svg>
+  </div>
+
+  <div class="stats">
+    <div class="stat-card">
+      <div class="num">58</div>
+      <div class="desc">unit + e2e тестов</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">12</div>
+      <div class="desc">edges в dependency graph</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">6</div>
+      <div class="desc">thinker lenses</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">~0</div>
+      <div class="desc">overhead без .clarity-protocol/</div>
+    </div>
+  </div>
+
+  <div style="margin-top:2rem;text-align:center;color:#8a8578;font-size:0.75rem;font-family:'Inter',sans-serif;">
+    <p>☿ Autolycus Agent · <a href="https://autolycus-agent.ru" style="color:#8a8578;">autolycus-agent.ru</a></p>
+  </div>
+</div>
+</body>
+</html>
