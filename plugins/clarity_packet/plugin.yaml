@@ -1,0 +1,9 @@
+name: clarity_packet
+version: 1.0.0
+description: "Clarity Protocol packet status — SHA-256 dependency graph, stale document detection, decision reconsideration tracking"
+author: "Nikolay Gusev"
+hooks:
+  - pre_llm_call
+tools:
+  - clarity_packet_report
+  - clarity_packet_record
