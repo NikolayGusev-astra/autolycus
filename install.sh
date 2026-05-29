@@ -22,7 +22,7 @@ set -e
 REPO="https://github.com/NikolayGusev-astra/autolycus.git"
 INSTALL_DIR="$HOME/autolycus"
 DOMAIN=""
-VENV_DIR="$INSTALL_DIR/venv"
+VENV_DIR="$INSTALL_DIR/.venv"
 
 # Parse args
 while [[ $# -gt 0 ]]; do
@@ -198,22 +198,35 @@ echo "✓ Systemd service created"
 # Restart service if updated, start if fresh
 echo ""
 echo "→ Starting Autolycus Agent..."
-systemctl --user enable autolycus-agent 2>/dev/null || true
 
-if [ -n "$REPO_UPDATED" ] && systemctl --user is-active autolycus-agent >/dev/null 2>&1; then
-    echo "  Restarting with new version..."
-    systemctl --user restart autolycus-agent 2>/dev/null || true
-elif ! systemctl --user is-active autolycus-agent >/dev/null 2>&1; then
-    systemctl --user start autolycus-agent 2>/dev/null || true
-fi
+# Check if systemd user session is available (requires lingering or systemd user instance)
+if command -v systemctl >/dev/null 2>&1 && systemctl --user is-system-running >/dev/null 2>&1; then
+    systemctl --user enable autolycus-agent 2>/dev/null || true
 
-sleep 3
+    if [ -n "$REPO_UPDATED" ] && systemctl --user is-active autolycus-agent >/dev/null 2>&1; then
+        echo "  Restarting with new version..."
+        systemctl --user restart autolycus-agent 2>/dev/null || true
+    elif ! systemctl --user is-active autolycus-agent >/dev/null 2>&1; then
+        systemctl --user start autolycus-agent 2>/dev/null || true
+    fi
 
-if systemctl --user is-active autolycus-agent >/dev/null 2>&1; then
-    echo "✓ Autolycus Agent is running"
+    sleep 3
+
+    if systemctl --user is-active autolycus-agent >/dev/null 2>&1; then
+        echo "✓ Autolycus Agent is running"
+    else
+        echo "⚠ Service may still be starting. Check with:"
+        echo "  systemctl --user status autolycus-agent"
+    fi
 else
-    echo "⚠ Service may still be starting. Check with:"
-    echo "  systemctl --user status autolycus-agent"
+    echo "  systemd user session not available — starting in background..."
+    nohup "$VENV_DIR/bin/autolycus-agent" start > /tmp/autolycus.log 2>&1 &
+    sleep 3
+    if pgrep -f autolycus-agent >/dev/null 2>&1; then
+        echo "✓ Autolycus Agent is running (PID: $(pgrep -f autolycus-agent | head -1))"
+    else
+        echo "⚠ Start may have failed. Check: cat /tmp/autolycus.log"
+    fi
 fi
 
 echo ""
@@ -236,7 +249,7 @@ if ! grep -q 'AUTOLYCUS_HOME' "$SHELL_RC" 2>/dev/null; then
         echo ""
         echo "# Autolycus Agent"
         echo "export AUTOLYCUS_HOME=\"$AUTOLYCUS_HOME_DIR\""
-        echo "export PATH=\"$INSTALL_DIR/venv/bin:\$PATH\""
+        echo "export PATH=\\\"$INSTALL_DIR/.venv/bin:\\$PATH\\"""
     } >> "$SHELL_RC"
     echo "✓ AUTOLYCUS_HOME configured in $SHELL_RC"
 fi
@@ -306,6 +319,7 @@ echo "╔═══════════════════════�
 echo "║   Installation complete!                 ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
+echo "  Run:          autolycus setup"
 echo "  Install dir:  $INSTALL_DIR"
 echo "  Config:       $INSTALL_DIR/.env"
 echo "  Logs:         journalctl --user -u autolycus-agent -f"
@@ -313,3 +327,9 @@ echo "  Restart:      systemctl --user restart autolycus-agent"
 echo "  Stop:         systemctl --user stop autolycus-agent"
 echo ""
 echo "  Update:       curl -fsSL https://autolycus-agent.ru/install.sh | bash"
+
+# Create symlink for immediate use (in case .bashrc hasn't been sourced yet)
+if [ -x "$VENV_DIR/bin/autolycus" ]; then
+    ln -sf "$VENV_DIR/bin/autolycus" /usr/local/bin/autolycus
+    echo "  Symlinked:    /usr/local/bin/autolycus"
+fi
