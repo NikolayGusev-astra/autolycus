@@ -3,7 +3,7 @@ plugins/rtk/pattern.py — Semantic pattern detection over RTK metadata.
 
 Reads the tool call sequence from state.db (via metadata.py) and detects:
 
-  1. CONSECUTIVE_ERRORS — N tool calls in a row with error=true
+  1. CONSECUTIVE_ERRORS — N identical-failing tool calls (same tool + same output)
   2. TOOL_LOOP — alternating tool→error→same_tool→error→same_tool
   3. BUDGET_EXCEEDED — session cost exceeded configured limit
   4. NO_PROGRESS — read-only tools returning identical error text
@@ -67,12 +67,16 @@ def detect_consecutive_errors(
     session_id: str,
     threshold: int = 3,
 ) -> Optional[Signal]:
-    """Check if the last N tool calls all had error=true.
+    """Check if the same tool call (same tool + same output) repeats N times.
+
+    Distinguishes loops from sequential problem-solving:
+    - Loop: same tool_name + same content_preview N times → halt
+    - Problem-solving: different tools or different output → not a loop
 
     Flushes pending RTK metadata to state.db before reading.
 
     Args:
-        threshold: Number of consecutive errors to trigger (default: 3).
+        threshold: Number of consecutive identical errors to trigger (default: 3).
 
     Returns:
         Signal if threshold met, else None.
@@ -80,27 +84,58 @@ def detect_consecutive_errors(
     # Ensure pending metadata is written to state.db
     _flush_rtk_metadata()
 
-    seq = rtk_meta.get_tool_sequence(db_session, session_id, limit=threshold)
-    if len(seq) < threshold:
+    # Fetch extra rows to check for repeated patterns among errors.
+    # get_tool_sequence returns newest-first (DESC), so we reverse to get chronological order.
+    seq = rtk_meta.get_tool_sequence(db_session, session_id, limit=max(threshold * 3, 12))
+    if not seq:
         return None
 
-    errors = []
-    for s in seq:
+    # Reverse to chronological order (oldest first)
+    seq_chronological = list(reversed(seq))
+
+    # Walk through and count consecutive identical-failing calls.
+    # A "loop key" = (tool_name, content_preview) — if both match,
+    # it's the same call repeating. Different key = different approach, reset counter.
+    max_repeats = 0
+    current_repeats = 0
+    prev_loop_key = None
+    looped_tool = None
+    total_errors = 0
+
+    for s in seq_chronological:
         meta = s.get("rtk_metadata", {})
-        if meta.get("error", False):
-            errors.append(s["tool_name"])
-            if len(errors) >= threshold:
-                tools = ", ".join(sorted(set(errors)))
-                return Signal(
-                    code="CONSECUTIVE_ERRORS",
-                    severity="critical",
-                    message=f"{threshold} ошибки подряд ({tools}). Прерви стратегию.",
-                    count=threshold,
-                    detail={"tools": errors, "total": len(seq)},
-                    should_halt=True,
-                )
+        is_error = meta.get("error", False)
+        if not is_error:
+            current_repeats = 0
+            prev_loop_key = None
+            continue
+
+        total_errors += 1
+        tool_name = s.get("tool_name", "?")
+        preview = s.get("content_preview", "")[:200]
+        loop_key = f"{tool_name}:{preview}"
+
+        if loop_key == prev_loop_key:
+            current_repeats += 1
         else:
-            break  # non-error resets the counter
+            current_repeats = 1
+
+        if current_repeats > max_repeats:
+            max_repeats = current_repeats
+            looped_tool = tool_name
+
+        prev_loop_key = loop_key
+
+    if max_repeats >= threshold:
+        return Signal(
+            code="CONSECUTIVE_ERRORS",
+            severity="critical",
+            message=f"{max_repeats} одинаковых ошибок подряд ({looped_tool}). Зацикливание — прерви стратегию.",
+            count=max_repeats,
+            detail={"tool": looped_tool, "total_errors": total_errors, "total_calls": len(seq)},
+            should_halt=True,
+        )
+
     return None
 
 

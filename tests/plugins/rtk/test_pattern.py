@@ -112,14 +112,33 @@ class TestConsecutiveErrors:
         assert sig is None  # not consecutive
 
     def test_different_tools(self, db, sess):
+        """Different tools with errors = problem-solving, NOT a loop. No signal."""
         tools = ["terminal", "terminal", "read_file"]
         for i, t in enumerate(tools):
             _insert_tool(db, tool_call_id=f"tc-{i}", tool_name=t, error=True)
         sig = pattern.detect_consecutive_errors(sess, "test-sess", threshold=3)
+        # Different tools with same error output = sequential problem-solving, not loop
+        assert sig is None
+
+    def test_same_tool_same_content_is_loop(self, db, sess):
+        """Same tool + same error output 3 times = loop → should trigger."""
+        for i in range(3):
+            _insert_tool(db, tool_call_id=f"tc-{i}", tool_name="terminal",
+                         content="permission denied", error=True)
+        sig = pattern.detect_consecutive_errors(sess, "test-sess", threshold=3)
         assert sig is not None
-        # Detail should contain all tools
-        assert "terminal" in sig.detail.get("tools", [])
-        assert "read_file" in sig.detail.get("tools", [])
+        assert sig.code == "CONSECUTIVE_ERRORS"
+        assert sig.count == 3
+        assert sig.detail["tool"] == "terminal"
+
+    def test_same_tool_different_content_no_loop(self, db, sess):
+        """Same tool but different error output = problem-solving, NOT loop."""
+        contents = ["permission denied", "file not found", "timeout"]
+        for i, c in enumerate(contents):
+            _insert_tool(db, tool_call_id=f"tc-{i}", tool_name="terminal",
+                         content=c, error=True)
+        sig = pattern.detect_consecutive_errors(sess, "test-sess", threshold=3)
+        assert sig is None
 
 
 # ===========================================================================
