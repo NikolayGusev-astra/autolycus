@@ -19,66 +19,102 @@
 
 set -e
 
+# Guard against inherited PYTHONPATH/PYTHONHOME
+if [ -n "${PYTHONPATH:-}" ]; then
+    unset PYTHONPATH
+fi
+if [ -n "${PYTHONHOME:-}" ]; then
+    unset PYTHONHOME
+fi
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+BOLD='\033[1m'
+
+# Configuration
 REPO="https://github.com/NikolayGusev-astra/autolycus.git"
 INSTALL_DIR="$HOME/autolycus"
 DOMAIN=""
-VENV_DIR="$INSTALL_DIR/.venv"
+PYTHON_MIN="3.8"
+
+# Options
+SKIP_SETUP=false
 
 # Parse args
 while [[ $# -gt 0 ]]; do
     case $1 in
         --domain) DOMAIN="$2"; shift 2 ;;
+        --skip-setup) SKIP_SETUP=true; shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
 
-echo "╔══════════════════════════════════════════╗"
-echo "║   Autolycus Agent Installer              ║"
-echo "╚══════════════════════════════════════════╝"
+echo ""
+echo -e "${CYAN}${BOLD}╔══════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}${BOLD}║   Autolycus Agent Installer              ║${NC}"
+echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 
-# Check prerequisites
-echo "→ Checking prerequisites..."
+# ============================================================================
+# Helpers
+# ============================================================================
+
+log_info()  { echo -e "${CYAN}→${NC} $1"; }
+log_ok()    { echo -e "${GREEN}✓${NC} $1"; }
+log_warn()  { echo -e "${YELLOW}⚠${NC} $1"; }
+log_error() { echo -e "${RED}✗${NC} $1"; }
+
+# ============================================================================
+# Prerequisites
+# ============================================================================
+
+log_info "Checking prerequisites..."
 
 # Python 3.8+
 if ! command -v python3 >/dev/null 2>&1; then
-    echo "⚠ Python 3 not found. Install Python 3.8+ and retry."
+    log_error "Python 3 not found. Install Python 3.8+ and retry."
     exit 1
 fi
 
-PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "0.0")
-PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d. -f1)
-PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
+PY_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+PY_MAJOR=$(echo "$PY_VER" | cut -d. -f1)
+PY_MINOR=$(echo "$PY_VER" | cut -d. -f2)
 
-if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 8 ]); then
-    echo "⚠ Python $PYTHON_VERSION detected. Requires Python 3.8+"
+if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 8 ]; }; then
+    log_error "Python $PY_VER detected. Requires Python 3.8+"
     exit 1
 fi
-echo "✓ Python $PYTHON_VERSION"
+log_ok "Python $PY_VER"
 
 # git
 if ! command -v git >/dev/null 2>&1; then
-    echo "⚠ git not found. Install git and retry."
+    log_error "git not found. Install git and retry."
     exit 1
 fi
-echo "✓ git"
+log_ok "git"
 
 # curl
 if ! command -v curl >/dev/null 2>&1; then
-    echo "⚠ curl not found. Install curl and retry."
+    log_error "curl not found. Install curl and retry."
     exit 1
 fi
-echo "✓ curl"
-echo "✓ User: $USER"
-echo "✓ Install dir: $INSTALL_DIR"
+log_ok "curl"
+log_ok "User: $USER"
 echo ""
 
+# ============================================================================
 # Clone or update repository
-echo "→ Installing Autolycus Agent..."
+# ============================================================================
+
+log_info "Installing Autolycus Agent..."
+
 if [ -d "$INSTALL_DIR/.git" ]; then
     echo "  Updating existing installation..."
     cd "$INSTALL_DIR"
-    # Stash local changes so pull doesn't fail on modified tracked files
     git stash -q 2>/dev/null || true
     git fetch origin 2>&1
     LOCAL=$(git rev-parse HEAD)
@@ -90,66 +126,80 @@ if [ -d "$INSTALL_DIR/.git" ]; then
         git pull --rebase 2>&1
         REPO_UPDATED=1
     fi
-    # Restore stashed changes
     git stash pop -q 2>/dev/null || true
 else
     echo "  Cloning repository..."
     git clone "$REPO" "$INSTALL_DIR" 2>&1 || {
-        echo "⚠ Failed to clone repository. Check network/proxy settings."
+        log_error "Failed to clone repository."
         echo "  Manual: git clone $REPO $INSTALL_DIR"
         exit 1
     }
     REPO_UPDATED=1
 fi
-echo "✓ Repository ready"
+log_ok "Repository ready"
 
-# Create virtual environment
+# ============================================================================
+# Virtual environment
+# ============================================================================
+
 echo ""
-echo "→ Setting up virtual environment..."
+log_info "Setting up virtual environment..."
 cd "$INSTALL_DIR"
 
-if [ ! -d "$VENV_DIR" ]; then
-    # Legacy: check for old venv path (without dot)
-    if [ -d "$INSTALL_DIR/venv" ]; then
-        VENV_DIR="$INSTALL_DIR/venv"
-        echo "  Using existing venv at $VENV_DIR"
-    else
-        python3 -m venv "$VENV_DIR" 2>/dev/null || {
-            echo "⚠ python3-venv not available. Trying without..."
-            python3 -m pip install --user virtualenv -qq 2>/dev/null
-            python3 -m virtualenv "$VENV_DIR" 2>/dev/null || {
-                echo "⚠ Cannot create virtual environment."
-                echo "  Install python3-venv: sudo apt-get install python3-venv"
-                exit 1
-            }
+# Resolve venv path: prefer .venv, fall back to legacy venv
+if [ -d "$INSTALL_DIR/.venv" ]; then
+    VENV_DIR="$INSTALL_DIR/.venv"
+    echo "  Using existing .venv"
+elif [ -d "$INSTALL_DIR/venv" ]; then
+    VENV_DIR="$INSTALL_DIR/venv"
+    echo "  Using existing venv (legacy path)"
+else
+    VENV_DIR="$INSTALL_DIR/.venv"
+    python3 -m venv "$VENV_DIR" 2>/dev/null || {
+        log_warn "python3-venv not available. Trying virtualenv..."
+        python3 -m pip install --user virtualenv -qq 2>/dev/null
+        python3 -m virtualenv "$VENV_DIR" 2>/dev/null || {
+            log_error "Cannot create virtual environment."
+            echo "  Install python3-venv: sudo apt-get install python3-venv"
+            exit 1
         }
-    fi
+    }
 fi
 
 source "$VENV_DIR/bin/activate"
-pip install --upgrade pip setuptools wheel -qq 2>&1 | tail -2
-echo "✓ Virtual environment ready"
+pip install --upgrade pip setuptools wheel -qq 2>&1 | tail -1
+log_ok "Virtual environment ready ($VENV_DIR)"
 
-# Install Python dependencies
+# ============================================================================
+# Install Python packages
+# ============================================================================
+
 echo ""
-echo "→ Installing Python packages..."
+log_info "Installing Python packages..."
+
 if [ -f requirements.txt ]; then
     pip install -r requirements.txt -qq 2>&1 | tail -3
 elif [ -f pyproject.toml ]; then
     pip install -e . -qq 2>&1 | tail -3
 else
-    echo "  No requirements.txt or pyproject.toml found, skipping"
+    log_warn "No requirements.txt or pyproject.toml found"
 fi
-echo "✓ Python packages installed"
+log_ok "Python packages installed"
 
-# Create symlink for immediate use
+# ============================================================================
+# Create symlink
+# ============================================================================
+
 if [ -x "$VENV_DIR/bin/autolycus" ]; then
     ln -sf "$VENV_DIR/bin/autolycus" /usr/local/bin/autolycus 2>/dev/null || true
 fi
 
+# ============================================================================
 # Configure .env
+# ============================================================================
+
 echo ""
-echo "→ Configuration..."
+log_info "Configuration..."
 
 if [ ! -f .env ]; then
     if [ -f .env.example ]; then
@@ -166,8 +216,8 @@ ENVEOF
         echo "  Created .env template"
     fi
     echo ""
-    echo "  ⚠ IMPORTANT: Edit .env with your credentials:"
-    echo "    nano $INSTALL_DIR/.env"
+    log_warn "IMPORTANT: Edit .env with your credentials:"
+    echo "  nano $INSTALL_DIR/.env"
     echo ""
     echo "  Required:"
     echo "    OPENROUTER_API_KEY — from https://openrouter.ai/keys"
@@ -181,9 +231,12 @@ else
     echo "  .env already exists, skipping"
 fi
 
-# Create systemd user service
+# ============================================================================
+# Systemd service (optional)
+# ============================================================================
+
 echo ""
-echo "→ Creating systemd user service..."
+log_info "Creating systemd user service..."
 
 SERVICE_FILE="$HOME/.config/systemd/user/autolycus-agent.service"
 mkdir -p "$(dirname "$SERVICE_FILE")"
@@ -207,18 +260,16 @@ RestartSec=5
 WantedBy=default.target
 SERVICEEOF
 
-systemctl --user daemon-reload 2>/dev/null || true
-echo "✓ Systemd service created"
-
-# Restart service if updated, start if fresh
-echo ""
-echo "→ Starting Autolycus Agent..."
-
-# Check if systemd user session is available (requires lingering or systemd user instance)
+# Start service — systemd optional, fallback to nohup
 if command -v systemctl >/dev/null 2>&1 && systemctl --user is-system-running >/dev/null 2>&1; then
+    systemctl --user daemon-reload 2>/dev/null || true
+    log_ok "Systemd service created"
+
+    echo ""
+    log_info "Starting Autolycus Agent..."
     systemctl --user enable autolycus-agent 2>/dev/null || true
 
-    if [ -n "$REPO_UPDATED" ] && systemctl --user is-active autolycus-agent >/dev/null 2>&1; then
+    if [ -n "${REPO_UPDATED:-}" ] && systemctl --user is-active autolycus-agent >/dev/null 2>&1; then
         echo "  Restarting with new version..."
         systemctl --user restart autolycus-agent 2>/dev/null || true
     elif ! systemctl --user is-active autolycus-agent >/dev/null 2>&1; then
@@ -228,53 +279,54 @@ if command -v systemctl >/dev/null 2>&1 && systemctl --user is-system-running >/
     sleep 3
 
     if systemctl --user is-active autolycus-agent >/dev/null 2>&1; then
-        echo "✓ Autolycus Agent is running"
+        log_ok "Autolycus Agent is running"
     else
-        echo "⚠ Service may still be starting. Check with:"
+        log_warn "Service may still be starting. Check:"
         echo "  systemctl --user status autolycus-agent"
     fi
 else
-    echo "  systemd user session not available — starting in background..."
-    nohup "$VENV_DIR/bin/autolycus-agent" start > /tmp/autolycus.log 2>&1 &
+    log_ok "Service file created (systemd user not available)"
+
+    echo ""
+    log_info "Starting Autolycus Agent in background..."
+    nohup "$VENV_DIR/bin/autolycus" gateway run --replace > /tmp/autolycus.log 2>&1 &
     sleep 3
-    if pgrep -f autolycus-agent >/dev/null 2>&1; then
-        echo "✓ Autolycus Agent is running (PID: $(pgrep -f autolycus-agent | head -1))"
+    if pgrep -f "autolycus" >/dev/null 2>&1; then
+        log_ok "Autolycus Agent is running (PID: $(pgrep -f 'autolycus' | head -1))"
     else
-        echo "⚠ Start may have failed. Check: cat /tmp/autolycus.log"
+        log_warn "Start may have failed. Check: cat /tmp/autolycus.log"
     fi
 fi
 
+# ============================================================================
+# Autolycus home directory
+# ============================================================================
+
 echo ""
-echo "→ Setting up Autolycus home directory..."
+log_info "Setting up Autolycus home directory..."
 
 AUTOLYCUS_HOME_DIR="$HOME/.autolycus"
 mkdir -p "$AUTOLYCUS_HOME_DIR/profiles/default" 2>/dev/null
-
-# Export now so child processes (autolycus setup) pick it up
 export AUTOLYCUS_HOME="$AUTOLYCUS_HOME_DIR"
 
-# Set AUTOLYCUS_HOME in shell rc for future sessions
+# Set AUTOLYCUS_HOME in shell rc
 SHELL_RC="$HOME/.bashrc"
-if [ -f "$HOME/.zshrc" ]; then
-    SHELL_RC="$HOME/.zshrc"
-fi
+[ -f "$HOME/.zshrc" ] && SHELL_RC="$HOME/.zshrc"
 
 if ! grep -q 'AUTOLYCUS_HOME' "$SHELL_RC" 2>/dev/null; then
-    {
-        echo ""
-        echo "# Autolycus Agent"
-        echo "export AUTOLYCUS_HOME=\"$AUTOLYCUS_HOME_DIR\""
-        echo "export PATH=\\\"$INSTALL_DIR/.venv/bin:\\$PATH\\"""
-    } >> "$SHELL_RC"
-    echo "✓ AUTOLYCUS_HOME configured in $SHELL_RC"
+    cat >> "$SHELL_RC" << RCEOF
+
+# Autolycus Agent
+export AUTOLYCUS_HOME="$AUTOLYCUS_HOME_DIR"
+export PATH="$VENV_DIR/bin:\$PATH"
+RCEOF
+    log_ok "AUTOLYCUS_HOME configured in $SHELL_RC"
 fi
 
-# Run quick setup with isolated home
+# Create default config.yaml
 echo ""
-echo "→ Creating default configuration..."
-mkdir -p "$AUTOLYCUS_HOME_DIR" 2>/dev/null
+log_info "Creating default configuration..."
 
-# Create default config.yaml with basic settings
 if [ ! -f "$AUTOLYCUS_HOME_DIR/config.yaml" ]; then
     cat > "$AUTOLYCUS_HOME_DIR/config.yaml" << 'CFGEOF'
 model:
@@ -313,38 +365,36 @@ plugins:
     rtk:
       enabled: false
 CFGEOF
-    echo "✓ Default config created in $AUTOLYCUS_HOME_DIR"
+    log_ok "Default config created in $AUTOLYCUS_HOME_DIR"
 fi
 
-# Create .env if missing
+# Create .env template in home dir
 if [ ! -f "$AUTOLYCUS_HOME_DIR/.env" ]; then
     cat > "$AUTOLYCUS_HOME_DIR/.env" << 'ENVEOF'
 OPENROUTER_API_KEY=***
 # TELEGRAM_BOT_TOKEN=***
 # TELEGRAM_ALLOWED_USERS=
 ENVEOF
-    echo "✓ .env template created"
+    log_ok ".env template created"
     echo ""
-    echo "  ⚠ Edit with your keys:"
-    echo "    nano $AUTOLYCUS_HOME_DIR/.env"
+    log_warn "Edit with your keys:"
+    echo "  nano $AUTOLYCUS_HOME_DIR/.env"
 fi
 
+# ============================================================================
+# Done
+# ============================================================================
+
 echo ""
-echo "╔══════════════════════════════════════════╗"
-echo "║   Installation complete!                 ║"
-echo "╚══════════════════════════════════════════╝"
+echo -e "${GREEN}${BOLD}╔══════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}${BOLD}║   Installation complete!                 ║${NC}"
+echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
-echo "  Run:          autolycus setup"
-echo "  Install dir:  $INSTALL_DIR"
-echo "  Config:       $INSTALL_DIR/.env"
-echo "  Logs:         journalctl --user -u autolycus-agent -f"
-echo "  Restart:      systemctl --user restart autolycus-agent"
-echo "  Stop:         systemctl --user stop autolycus-agent"
+echo -e "  ${CYAN}Run:${NC}          autolycus setup"
+echo -e "  ${CYAN}Install dir:${NC}  $INSTALL_DIR"
+echo -e "  ${CYAN}Config:${NC}       $INSTALL_DIR/.env"
+echo -e "  ${CYAN}Logs:${NC}         journalctl --user -u autolycus-agent -f"
+echo -e "  ${CYAN}Restart:${NC}      systemctl --user restart autolycus-agent"
+echo -e "  ${CYAN}Stop:${NC}         systemctl --user stop autolycus-agent"
 echo ""
 echo "  Update:       curl -fsSL https://autolycus-agent.ru/install.sh | bash"
-
-# Create symlink for immediate use (in case .bashrc hasn't been sourced yet)
-if [ -x "$VENV_DIR/bin/autolycus" ]; then
-    ln -sf "$VENV_DIR/bin/autolycus" /usr/local/bin/autolycus
-    echo "  Symlinked:    /usr/local/bin/autolycus"
-fi
