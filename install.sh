@@ -78,6 +78,8 @@ echo "→ Installing Autolycus Agent..."
 if [ -d "$INSTALL_DIR/.git" ]; then
     echo "  Updating existing installation..."
     cd "$INSTALL_DIR"
+    # Stash local changes so pull doesn't fail on modified tracked files
+    git stash -q 2>/dev/null || true
     git fetch origin 2>&1
     LOCAL=$(git rev-parse HEAD)
     REMOTE=$(git rev-parse origin/main)
@@ -88,6 +90,8 @@ if [ -d "$INSTALL_DIR/.git" ]; then
         git pull --rebase 2>&1
         REPO_UPDATED=1
     fi
+    # Restore stashed changes
+    git stash pop -q 2>/dev/null || true
 else
     echo "  Cloning repository..."
     git clone "$REPO" "$INSTALL_DIR" 2>&1 || {
@@ -105,15 +109,21 @@ echo "→ Setting up virtual environment..."
 cd "$INSTALL_DIR"
 
 if [ ! -d "$VENV_DIR" ]; then
-    python3 -m venv "$VENV_DIR" 2>/dev/null || {
-        echo "⚠ python3-venv not available. Trying without..."
-        python3 -m pip install --user virtualenv -qq 2>/dev/null
-        python3 -m virtualenv "$VENV_DIR" 2>/dev/null || {
-            echo "⚠ Cannot create virtual environment."
-            echo "  Install python3-venv: sudo apt-get install python3-venv"
-            exit 1
+    # Legacy: check for old venv path (without dot)
+    if [ -d "$INSTALL_DIR/venv" ]; then
+        VENV_DIR="$INSTALL_DIR/venv"
+        echo "  Using existing venv at $VENV_DIR"
+    else
+        python3 -m venv "$VENV_DIR" 2>/dev/null || {
+            echo "⚠ python3-venv not available. Trying without..."
+            python3 -m pip install --user virtualenv -qq 2>/dev/null
+            python3 -m virtualenv "$VENV_DIR" 2>/dev/null || {
+                echo "⚠ Cannot create virtual environment."
+                echo "  Install python3-venv: sudo apt-get install python3-venv"
+                exit 1
+            }
         }
-    }
+    fi
 fi
 
 source "$VENV_DIR/bin/activate"
@@ -131,6 +141,11 @@ else
     echo "  No requirements.txt or pyproject.toml found, skipping"
 fi
 echo "✓ Python packages installed"
+
+# Create symlink for immediate use
+if [ -x "$VENV_DIR/bin/autolycus" ]; then
+    ln -sf "$VENV_DIR/bin/autolycus" /usr/local/bin/autolycus 2>/dev/null || true
+fi
 
 # Configure .env
 echo ""
