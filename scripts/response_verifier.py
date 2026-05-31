@@ -7,7 +7,10 @@
 """
 import os
 from typing import Any
-from task_outcome import TaskOutcome, OutcomeCode
+from task_outcome import TaskOutcome, OutcomeCode, verify_outcome as _verify_outcome
+
+# Сообщения, которые считаются слишком общими для ERROR
+_GENERIC_ERROR_MSGS = frozenset({"Error occurred", "Something went wrong"})
 
 
 def verify_grounding_refs(refs: list[str]) -> list[str]:
@@ -19,6 +22,9 @@ def verify_grounding_refs(refs: list[str]) -> list[str]:
     - Возвращает список проблем (пустой = всё ок)
     """
     problems: list[str] = []
+
+    if refs is None:
+        return ["grounding_refs is None"]
 
     for i, ref in enumerate(refs):
         if not isinstance(ref, str):
@@ -63,8 +69,7 @@ def verify_outcome_completeness(outcome: TaskOutcome) -> list[str]:
             )
 
     elif outcome.code == OutcomeCode.ERROR:
-        generic_msgs = {"Error occurred", "Something went wrong"}
-        if outcome.message.strip() in generic_msgs:
+        if outcome.message.strip() in _GENERIC_ERROR_MSGS:
             problems.append(
                 "ERROR message is too generic; provide a specific error description"
             )
@@ -134,9 +139,6 @@ def verify_response(outcome: TaskOutcome, context: dict | None = None) -> tuple[
     all_problems: list[str] = []
 
     # Базовая проверка из task_outcome
-    _, verify_errors = outcome.verify_outcome() if hasattr(outcome, 'verify_outcome') else (True, [])
-    # На случай если используем импортированную функцию
-    from task_outcome import verify_outcome as _verify_outcome
     _, vo_errors = _verify_outcome(outcome)
     all_problems.extend(vo_errors)
 
