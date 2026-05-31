@@ -81,6 +81,30 @@ class TestVerifyOutcome:
         assert valid is False
         assert any("message" in e for e in errors)
 
+    def test_none_code_fails_verify(self):
+        outcome = TaskOutcome(code=None, message="no code")  # type: ignore
+        valid, errors = verify_outcome(outcome)
+        assert valid is False
+        assert any("code must not be None" in e for e in errors)
+
+    def test_invalid_code_type_fails_verify(self):
+        outcome = TaskOutcome(code="INVALID", message="bad code")  # type: ignore
+        valid, errors = verify_outcome(outcome)
+        assert valid is False
+        assert any("OutcomeCode" in e for e in errors)
+
+    def test_grounding_refs_not_a_list_fails(self):
+        outcome = TaskOutcome(code=OutcomeCode.OK, message="test", grounding_refs="not-a-list")  # type: ignore
+        valid, errors = verify_outcome(outcome)
+        assert valid is False
+        assert any("grounding_refs must be a list" in e for e in errors)
+
+    def test_grounding_refs_non_string_item_fails(self):
+        outcome = TaskOutcome(code=OutcomeCode.OK, message="test", grounding_refs=[42])  # type: ignore
+        valid, errors = verify_outcome(outcome)
+        assert valid is False
+        assert any("must be a string" in e for e in errors)
+
     def test_format_outcome_with_grounding_refs(self):
         outcome = TaskOutcome(
             code=OutcomeCode.OK,
@@ -101,7 +125,7 @@ class TestFormatOutcome:
         result = format_outcome(outcome)
         assert result == "All good"
 
-    def test_format_outcome_denied(self):
+    def test_format_outcome_denied_security(self):
         outcome = TaskOutcome(
             code=OutcomeCode.DENIED_SECURITY,
             message="Cannot access secret file",
@@ -109,6 +133,15 @@ class TestFormatOutcome:
         result = format_outcome(outcome)
         assert "🚫 Отказано:" in result
         assert "Cannot access secret file" in result
+
+    def test_format_outcome_denied_policy(self):
+        outcome = TaskOutcome(
+            code=OutcomeCode.DENIED_POLICY,
+            message="Discount 99% exceeds policy limit",
+        )
+        result = format_outcome(outcome)
+        assert "🚫 Отказано:" in result
+        assert "Discount 99%" in result
 
     def test_format_outcome_clarification(self):
         outcome = TaskOutcome(

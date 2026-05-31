@@ -43,6 +43,8 @@ def verify_outcome(outcome: TaskOutcome) -> tuple[bool, list[str]]:
 
     if outcome.code is None:
         errors.append("code must not be None")
+    elif not isinstance(outcome.code, OutcomeCode):
+        errors.append("code must be an OutcomeCode member")
 
     if not outcome.message:
         errors.append("message must not be empty")
