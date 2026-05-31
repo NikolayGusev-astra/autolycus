@@ -116,12 +116,13 @@ class WorkflowClassifier:
         self.add_keywords("article_writing", [
             "статья", "статью", "статьи",
             "telegra.ph", "пост", "публикация", "черновик", "draft", "habr",
+            "напиши",
         ], weight=0.7)
         self.add_keywords("outcome_contract", [
             "outcome contract", "task_outcome", "verify gate", "trust boundaries",
         ], weight=0.7)
         self.add_keywords("bitgn_research", [
-            "bitgn", "ecom1", "pac1", "agent challenge", "агентные соревнования",
+            "bitgn", "ecom1", "ecom2", "pac1", "agent challenge", "агентные соревнования",
         ], weight=0.7)
         self.add_keywords("email_security", [
             "email", "mail", "письмо", "почта", "phishing", "spam", "проверь почту",

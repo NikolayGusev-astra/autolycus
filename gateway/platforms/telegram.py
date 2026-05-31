@@ -5471,6 +5471,28 @@ class TelegramAdapter(BasePlatformAdapter):
                 self.name, cache_key, thread_id,
             )
 
+    # ── Workflow classifier (lazy, cached) ──────────────────────────────────
+
+    _workflow_classifier = None
+
+    @staticmethod
+    def _get_workflow_classifier():
+        """Return cached WorkflowClassifier instance (lazy init, ~2ms first call)."""
+        if TelegramAdapter._workflow_classifier is not None:
+            return TelegramAdapter._workflow_classifier
+        try:
+            from scripts.workflow_classifier import WorkflowClassifier
+            clf = WorkflowClassifier()
+            clf.register_defaults()
+            TelegramAdapter._workflow_classifier = clf
+            logger.info("[WorkflowClassifier] Initialized with %d rules", len(clf.rules))
+            return clf
+        except Exception as exc:
+            logger.warning("[WorkflowClassifier] Failed to initialize: %s", exc)
+            # Cache the failure so we don't retry on every message
+            TelegramAdapter._workflow_classifier = None
+            return None
+
     def _build_message_event(
         self,
         message: Message,
@@ -5549,6 +5571,18 @@ class TelegramAdapter(BasePlatformAdapter):
                             topic_skill = topic.get("skill")
                             break
                     break
+
+        # Workflow classification: if no explicit topic skill binding,
+        # auto-detect the appropriate skill from the message text.
+        if topic_skill is None and message.text and len(message.text.strip()) >= 5:
+            try:
+                clf = self._get_workflow_classifier()
+                if clf is not None:
+                    profile = clf.classify(message.text)
+                    if profile and profile.confidence >= 0.5 and profile.skill:
+                        topic_skill = profile.skill
+            except Exception:
+                logger.debug("[WorkflowClassifier] Classification skipped (non-fatal)")
 
         # Build source
         source = self.build_source(
