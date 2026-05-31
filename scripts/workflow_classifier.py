@@ -29,6 +29,11 @@ class WorkflowClassifier:
 
     def __init__(self):
         self.rules: list[_Rule] = []
+        self._workflow_meta: dict[str, tuple[Optional[str], list[str]]] = {}
+
+    def register_workflow(self, name: str, skill: Optional[str] = None, toolsets: Optional[list[str]] = None) -> None:
+        """Register workflow metadata (skill and toolsets)."""
+        self._workflow_meta[name] = (skill, toolsets or [])
 
     def add_rule(self, pattern: str, workflow: str, weight: float = 1.0) -> None:
         """Add a regex rule for a workflow."""
@@ -65,8 +70,11 @@ class WorkflowClassifier:
             return None
         # Find workflow with highest confidence (tie-break by first encountered)
         best_wf = max(scores, key=lambda wf: (scores[wf], -self._workflow_index(wf)))
+        skill, toolsets = self._workflow_meta.get(best_wf, (None, []))
         return WorkflowProfile(
             name=best_wf,
+            skill=skill,
+            toolsets=toolsets,
             confidence=max_confidence
         )
 
@@ -84,11 +92,21 @@ class WorkflowClassifier:
         result = []
         for wf_name, confidence in sorted_wfs:
             if confidence > 0.0:
-                result.append(WorkflowProfile(name=wf_name, confidence=confidence))
+                skill, toolsets = self._workflow_meta.get(wf_name, (None, []))
+                result.append(WorkflowProfile(name=wf_name, skill=skill, toolsets=toolsets, confidence=confidence))
         return result
 
     def register_defaults(self) -> None:
-        """Register built-in workflow rules."""
+        """Register built-in workflow rules and metadata."""
+        # Workflow metadata
+        self.register_workflow("ford_diagnostics", skill="auto-diagnostics", toolsets=["terminal", "file", "web"])
+        self.register_workflow("article_writing", skill="autolycus-article-writer", toolsets=["web", "file"])
+        self.register_workflow("outcome_contract", skill="bitgn", toolsets=["terminal", "file"])
+        self.register_workflow("bitgn_research", skill="bitgn", toolsets=["web", "file"])
+        self.register_workflow("email_security", toolsets=["terminal", "file"])
+        self.register_workflow("diagnostic_generic", toolsets=["terminal", "file", "web"])
+
+        # Keywords rules
         self.add_keywords("ford_diagnostics", [
             "ford", "explorer",
             "форд", "эксплорер", "форд эксплорер",
