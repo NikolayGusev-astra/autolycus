@@ -3,13 +3,13 @@
 Принимает входящие сообщения/файлы, классифицирует уровень доверия,
 и возвращает TaskOutcome: OK для safe, DENIED для malicious, CLARIFICATION для suspicious.
 """
-from scripts.task_outcome import (
+from task_outcome import (
     TaskOutcome,
     outcome_ok,
     outcome_denied_security,
     outcome_clarification,
 )
-from scripts.trust_classifier import (
+from trust_classifier import (
     classify_source,
     classify_user_request,
     get_trust_annotation,
