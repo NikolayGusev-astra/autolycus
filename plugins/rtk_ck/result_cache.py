@@ -25,11 +25,13 @@ CACHEABLE_TOOLS = frozenset({
     "search_files",
 })
 
-# Tools that invalidate file caches (write operations)
+# Tools that invalidate file caches (write operations).
+# NOTE: `terminal` is NOT here — terminal args never contain `path`, so
+# invalidation never matched. A separate command-based invalidation layer
+# (future work) would be needed for terminal, not path-matching.
 INVALIDATING_TOOLS = frozenset({
     "write_file",
     "patch",
-    "terminal",
 })
 
 DEFAULT_MAX_SIZE = 100

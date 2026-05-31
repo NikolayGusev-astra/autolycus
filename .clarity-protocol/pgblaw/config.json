@@ -1,0 +1,132 @@
+{
+  "project": "PGB Law AI Lawyer",
+  "version": "2.0",
+  "status": "active",
+  "phases": {
+    "phase_0": {
+      "name": "Подготовка",
+      "duration": "1-2 месяца",
+      "tasks": [
+        "Аудит данных (архив PGB Law, ProjectMate)",
+        "Разметка 50-100 проектов ProjectMate",
+        "Подготовка данных для fine-tuning обезличивания",
+        "NDA подписан",
+        "Сервер закуплен, развёрнут"
+      ]
+    },
+    "phase_1": {
+      "name": "MVP",
+      "duration": "3-4 месяца",
+      "tasks": [
+        "Один контур, Qwen 3.7 локально",
+        "Intake + Research + Assembly + Self-review",
+        "RAG на 50-100 документах",
+        "Pipeline обезличивания (Natasha NER + правила)",
+        "Веб-интерфейс",
+        "Аудит-лог",
+        "КонсультантПлюс: ручные выгрузки"
+      ]
+    },
+    "phase_2": {
+      "name": "Расширение",
+      "duration": "3-6 месяцев",
+      "tasks": [
+        "Полный RAG-архив",
+        "Fine-tuned Qwen 2.5 7B для обезличивания",
+        "Модуль КП + ProjectMate",
+        "Claude API как опциональный fallback",
+        "Casebook: при наличии API — прямая интеграция"
+      ]
+    }
+  },
+  "decisions": [
+    {
+      "id": "D1",
+      "title": "Один контур, всё локально",
+      "status": "accepted",
+      "adr": "ADR-001, ADR-002"
+    },
+    {
+      "id": "D2",
+      "title": "Compact Constitution + RAG",
+      "status": "accepted",
+      "adr": "ADR-001"
+    },
+    {
+      "id": "D3",
+      "title": "Pipeline-обезличивание",
+      "status": "accepted",
+      "adr": "ADR-001, ADR-002"
+    },
+    {
+      "id": "D4",
+      "title": "Hermes-оркестрация",
+      "status": "accepted",
+      "adr": "ADR-001"
+    },
+    {
+      "id": "D5",
+      "title": "Guardrails через пост-процессинг",
+      "status": "accepted",
+      "adr": "ADR-001"
+    },
+    {
+      "id": "D6",
+      "title": "Qwen 3.7",
+      "status": "accepted",
+      "adr": "ADR-002"
+    },
+    {
+      "id": "D7",
+      "title": "ProjectMate prerequisite",
+      "status": "accepted",
+      "adr": "ADR-002"
+    },
+    {
+      "id": "D8",
+      "title": "MVP scope — честные ограничения",
+      "status": "accepted",
+      "adr": "ADR-002"
+    }
+  ],
+  "documents": {
+    "problem.md": {
+      "hash": "",
+      "last_accepted": "2026-05-29",
+      "triggers": ["stakeholders.md", "requirements.md"]
+    },
+    "stakeholders.md": {
+      "hash": "",
+      "last_accepted": "2026-05-29",
+      "triggers": ["requirements.md"]
+    },
+    "requirements.md": {
+      "hash": "",
+      "last_accepted": "2026-05-29",
+      "triggers": ["solution.md"]
+    },
+    "solution.md": {
+      "hash": "",
+      "last_accepted": "2026-05-29",
+      "triggers": ["failures.md", "decisions.md"]
+    },
+    "failures.md": {
+      "hash": "",
+      "last_accepted": "2026-05-29",
+      "triggers": ["decisions.md"]
+    },
+    "decisions.md": {
+      "hash": "",
+      "last_accepted": "2026-05-29",
+      "triggers": []
+    }
+  },
+  "graph": [
+    {"from": "problem.md", "to": "stakeholders.md"},
+    {"from": "problem.md", "to": "requirements.md"},
+    {"from": "stakeholders.md", "to": "requirements.md"},
+    {"from": "requirements.md", "to": "solution.md"},
+    {"from": "solution.md", "to": "failures.md"},
+    {"from": "failures.md", "to": "decisions.md"}
+  ]
+}

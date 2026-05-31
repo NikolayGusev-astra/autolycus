@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Autolycus — Enterprise AI Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ac-amber: #d4a843; --ac-ivory: #f0ece4; --ac-pitch: #0a0a0a;
+      --ac-stone: #8a8578; --ac-surface: #111; --ac-border: #1a1a1a;
+      --ac-gold-glow: rgba(212, 168, 67, 0.12);
+      --ac-font-display: 'Cormorant Garamond', serif;
+      --ac-font-body: 'Inter', sans-serif;
+      --ac-font-mono: 'JetBrains Mono', monospace;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: var(--ac-font-body); background: var(--ac-pitch);
+      color: var(--ac-ivory); line-height: 1.6;
+      -webkit-font-smoothing: antialiased; overflow-x: hidden;
+    }
+
+    /* ========== NAV ========== */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.75rem 5%; max-width: 1200px; margin: 0 auto;
+      background: rgba(10, 10, 10, 0.6);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--ac-border);
+    }
+    nav .logo { display: flex; align-items: center; gap: 0.5rem; text-decoration: none; }
+    nav .logo-text { font-family: var(--ac-font-display); font-size: 1.1rem; color: var(--ac-amber); }
+    .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+    .nav-links a { color: var(--ac-stone); text-decoration: none; font-size: 0.85rem; font-weight: 500; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--ac-amber); }
+
+    /* ========== HERO ========== */
+    .hero {
+      min-height: 100vh; display: flex; align-items: center;
+      padding: 6rem 5% 4rem; position: relative; overflow: hidden;
+    }
+    .hero-bg {
+      position: absolute; inset: 0; z-index: 0;
+      background: radial-gradient(ellipse 80% 50% at 50% 0%, rgba(212, 168, 67, 0.06) 0%, transparent 70%);
+    }
+
+    .hero-content {
+      position: relative; z-index: 10; max-width: 1200px; margin: 0 auto;
+      display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 3rem;
+      align-items: center; width: 100%;
+    }
+
+    /* ========== CADUCEUS ========== */
+    .ac-logo-badge {
+      display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;
+    }
+    .ac-logo-badge .caduceus {
+      font-size: 32px; color: var(--ac-amber);
+      filter: drop-shadow(0 0 20px rgba(212, 168, 67, 0.2));
+    }
+    .ac-logo-badge .ac-son { font-size: 0.7rem; color: var(--ac-stone); letter-spacing: 3px; text-transform: uppercase; }
+
+    .hero h1 {
+      font-family: var(--ac-font-display);
+      font-size: clamp(2.8rem, 5vw, 4rem);
+      font-weight: 700; line-height: 1.05;
+      letter-spacing: 2px; margin-bottom: 1rem;
+    }
+    .hero h1 .gold { color: var(--ac-amber); }
+    .hero h1 .gradient-text {
+      background: linear-gradient(135deg, var(--ac-amber), #f0c040);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero .tagline {
+      font-family: var(--ac-font-display); font-style: italic;
+      font-size: 1.15rem; color: var(--ac-amber); opacity: 0.6;
+      margin-bottom: 1.5rem;
+    }
+    .hero p {
+      font-size: 1rem; color: var(--ac-stone);
+      margin-bottom: 2rem; line-height: 1.7;
+    }
+    .hero-buttons { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+
+    /* ========== BUTTONS ========== */
+    .btn {
+      padding: 0.65rem 1.5rem; border-radius: 10px; font-weight: 600;
+      font-size: 0.85rem; cursor: pointer; text-decoration: none;
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      transition: all 0.25s ease; font-family: inherit; border: none;
+    }
+    .btn-primary { background: var(--ac-amber); color: var(--ac-pitch); }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(212, 168, 67, 0.2); }
+    .btn-glass {
+      background: var(--ac-surface); border: 1px solid var(--ac-border);
+      color: var(--ac-ivory);
+    }
+    .btn-glass:hover { border-color: var(--ac-amber); }
+
+    /* ========== GLASS CARD ========== */
+    .glass-card {
+      background: var(--ac-surface); border: 1px solid var(--ac-border);
+      border-radius: 24px; padding: 2rem;
+      box-shadow: 0 8px 60px rgba(0,0,0,0.3);
+    }
+
+    /* ========== CHAT MOCKUP ========== */
+    .chat-mock {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--ac-border); border-radius: 16px;
+      padding: 1rem; margin-top: 1.25rem;
+    }
+    .chat-msg { display: flex; gap: 0.6rem; margin-bottom: 0.75rem; align-items: flex-start; }
+    .chat-msg:last-child { margin-bottom: 0; }
+    .chat-msg .av {
+      width: 24px; height: 24px; border-radius: 6px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; line-height: 1;
+    }
+    .chat-msg .av.ai { background: rgba(212, 168, 67, 0.15); color: var(--ac-amber); }
+    .chat-msg .av.user { background: rgba(255,255,255,0.06); color: var(--ac-stone); }
+    .chat-msg .bubble {
+      padding: 0.4rem 0.7rem; border-radius: 10px;
+      font-size: 0.75rem; line-height: 1.5; max-width: 85%;
+    }
+    .chat-msg.ai .bubble {
+      background: rgba(255,255,255,0.04); border: 1px solid var(--ac-border);
+      color: var(--ac-stone);
+    }
+    .chat-msg.user { justify-content: flex-end; }
+    .chat-msg.user .bubble {
+      background: rgba(212, 168, 67, 0.08);
+      border: 1px solid rgba(212, 168, 67, 0.12); color: var(--ac-amber);
+    }
+
+    /* ========== FEATURES ========== */
+    .section { max-width: 1200px; margin: 0 auto; padding: 5rem 5%; }
+    .section h2 {
+      font-family: var(--ac-font-display);
+      font-size: clamp(2rem, 3vw, 2.8rem);
+      font-weight: 700; margin-bottom: 3rem; color: var(--ac-amber);
+    }
+    .features-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+    .feat-card {
+      background: var(--ac-surface); border: 1px solid var(--ac-border);
+      border-radius: 16px; padding: 1.75rem;
+      transition: all 0.3s ease;
+    }
+    .feat-card:hover { border-color: rgba(212,168,67,0.2); transform: translateY(-3px); }
+    .feat-card .icon { font-size: 28px; color: var(--ac-amber); margin-bottom: 0.75rem; }
+    .feat-card h3 { font-family: var(--ac-font-display); font-size: 1.2rem; margin-bottom: 0.5rem; }
+    .feat-card p { color: var(--ac-stone); font-size: 0.85rem; line-height: 1.6; }
+
+    /* ========== INSTALL ========== */
+    .cta { text-align: center; padding: 6rem 5%; max-width: 1200px; margin: 0 auto; }
+    .cta-box {
+      border: 1px solid var(--ac-border);
+      border-radius: 24px; padding: 4rem 2rem;
+      background: var(--ac-surface);
+    }
+    .cta-box h2 { font-family: var(--ac-font-display); font-size: 2rem; color: var(--ac-amber); margin-bottom: 0.75rem; }
+    .cta-box p { color: var(--ac-stone); margin-bottom: 2rem; }
+    .cta-box .install-cmd {
+      display: inline-flex; align-items: center; gap: 0.75rem;
+      background: rgba(0,0,0,0.4); border: 1px solid var(--ac-border);
+      border-radius: 12px; padding: 0.75rem 1.25rem;
+      font-family: var(--ac-font-mono); font-size: 0.85rem;
+    }
+    .cta-box .install-cmd .prompt { color: var(--ac-stone); }
+    .cta-box .install-cmd code { color: var(--ac-amber); flex: 1; }
+
+    /* ========== FOOTER ========== */
+    footer {
+      border-top: 1px solid var(--ac-border);
+      padding: 2rem 5%; text-align: center; color: var(--ac-stone); font-size: 0.75rem;
+    }
+    footer .mit { opacity: 0.5; margin-top: 4px; }
+
+    @media (max-width: 768px) {
+      .hero-content { grid-template-columns: 1fr; gap: 2rem; }
+      .features-grid { grid-template-columns: 1fr; }
+      .nav-links { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">
+    <span class="logo-text">☿ Autolycus</span>
+  </div>
+  <div class="nav-links">
+    <a href="#features">Возможности</a>
+    <a href="https://github.com/NikolayGusev-astra/autolycus">GitHub</a>
+    <a href="/clarity-protocol-architecture.html">Clarity Protocol</a>
+    <a href="/rtk-v2-architecture.html">RTK v3</a>
+    <a href="/governance-architecture.html">Governance</a>
+    <a href="/temporal-awareness-architecture.html">Temporal Awareness</a>
+    <a href="/en/index.html" style="color:#8a8578;">EN</a>
+    <a href="/" class="lang-switch" style="color:#d4a843;font-weight:600;">RU</a>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-content">
+    <div class="hero-left">
+      <div class="ac-logo-badge">
+        <span class="caduceus">☿</span>
+        <span class="ac-son">Son of Hermes</span>
+      </div>
+      <h1>
+        <span class="gold">AUTOLYCUS</span><br>
+        <span class="gradient-text">Enterprise AI Agent</span>
+      </h1>
+      <p>
+        Enterprise AI-агент на базе Hermes Agent. Оптимизирован для бизнеса,<br>
+        безопасности и on-premise развёртывания.
+      </p>
+      <div class="hero-buttons">
+        <a href="#install" class="btn btn-primary">Установить →</a>
+        <a href="https://github.com/NikolayGusev-astra/autolycus" class="btn btn-glass">GitHub</a>
+        <a href="/rtk-v2-architecture.html" class="btn btn-glass">RTK v3</a>
+        <a href="/governance-architecture.html" class="btn btn-glass">Governance</a>
+        <a href="/temporal-awareness-architecture.html" class="btn btn-glass">Temporal Awareness</a>
+      </div>
+    </div>
+
+    <div class="hero-right">
+      <div class="glass-card">
+        <div class="chat-mock">
+          <div class="chat-msg user">
+            <div class="bubble">Проверь нагрузку на серверах</div>
+            <div class="av user">П</div>
+          </div>
+          <div class="chat-msg ai">
+            <div class="av ai">☿</div>
+            <div class="bubble">12 серверов. Средняя загрузка CPU 34%, пик 89% на app-03.</div>
+          </div>
+          <div class="chat-msg user">
+            <div class="bubble">Заблокируй IP 185.220.101.x</div>
+            <div class="av user">П</div>
+          </div>
+          <div class="chat-msg ai">
+            <div class="av ai">☿</div>
+            <div class="bubble">IP заблокирован на всех серверах. +3 попытки за 10 минут в fail2ban.</div>
+          </div>
+          <div class="chat-msg user">
+            <div class="bubble">Обнови nginx на проде</div>
+            <div class="av user">П</div>
+          </div>
+          <div class="chat-msg ai">
+            <div class="av ai">☿</div>
+            <div class="bubble">Конфиг проверен, graceful reload. Сервисы без перерыва.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="features">
+  <h2>✦ Возможности</h2>
+  <div class="features-grid">
+    <div class="feat-card">
+      <div class="icon">☿</div>
+      <h3>Clarity Protocol</h3>
+      <p>SHA-256 dependency graph для документов планирования. Автоматически отслеживает stale-документы при изменении upstream. 6 специализированных thinker-lenses для failure analysis. Premortem + Prism integration.</p>
+      <p style="margin-top: 0.5rem; font-size: 0.85rem; color: #a09880;"><a href="/clarity-protocol-architecture.html" style="color:var(--ac-amber);text-decoration:none;">Архитектура →</a></p>
+    </div>
+    <div class="feat-card">
+      <div class="icon">⚕</div>
+      <h3>Безопасность</h3>
+      <p>Governance Coordinator — единый pre_tool_call: объединяет RTK circuit breaker, SBL разведку и Policy Engine в 4 режимах (off → audit → simulate → enforce).</p>
+    </div>
+    <div class="feat-card">
+      <div class="icon">✦</div>
+      <h3>Производительность</h3>
+      <p>RTK v3: type-aware сжатия вывода инструментов. 6 детекторов — budget, growth, patterns, dedup, result_cache, prefetch. Circuit breaker при критических аномалиях.</p>
+    </div>
+    <div class="feat-card">
+      <div class="icon">☿</div>
+      <h3>Enterprise-ready</h3>
+      <p>On-premise, white label, ClickHouse memory provider, полный аудит всех tool-вызовов.</p>
+    </div>
+    <div class="feat-card">
+      <div class="icon">⚕</div>
+      <h3>Постоянная память</h3>
+      <p>findings_to_wiki + ContextWriter — агент помнит архитектуру после перезапуска.</p>
+      <p style="margin-top: 0.5rem; font-size: 0.85rem; color: #a09880;">Temporal Awareness — группировка записей по возрасту: СЕГОДНЯ, ВЧЕРА, N ДНЕЙ НАЗАД, СТАРОЕ. Каждая группа предупреждает об актуальности.</p>
+    </div>
+    <div class="feat-card">
+      <div class="icon">✦</div>
+      <h3>Все интеграции</h3>
+      <p>Telegram, email, API, Docker, Nginx, Xray — подключайте через плагины.</p>
+    </div>
+    <div class="feat-card">
+      <div class="icon">☿</div>
+      <h3>Архитектура</h3>
+      <p><a href="/clarity-protocol-architecture.html" style="color:var(--ac-amber);text-decoration:none;">Clarity Protocol →</a><br>
+      <a href="/rtk-v2-architecture.html" style="color:var(--ac-amber);text-decoration:none;">RTK v3 →</a><br>
+      <a href="/governance-architecture.html" style="color:var(--ac-amber);text-decoration:none;">Governance Coordinator →</a></p>
+    </div>
+  </div>
+</section>
+
+<section class="cta" id="install">
+  <div class="cta-box">
+    <h2>☿ Начать работу</h2>
+    <p>Одна команда — и ваш AI-агент работает на сервере.</p>
+    <div class="install-cmd">
+      <span class="prompt">$</span>
+      <code>curl -fsSL https://autolycus-agent.ru/install.sh | bash</code>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>☿ Autolycus Agent</p>
+  <p class="mit">Based on Hermes Agent by Nous Research · MIT License</p>
+</footer>
+
+</body>
+</html>

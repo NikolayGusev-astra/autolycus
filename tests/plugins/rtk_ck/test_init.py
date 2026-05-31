@@ -147,7 +147,7 @@ class TestPreTurnHook:
 
 
 class TestCompressInPreTurn:
-    """pre_llm_call hook runs Compressor and injects stats."""
+    """pre_llm_call hook runs Compressor — log-only, NO injection."""
 
     def test_compress_stats_injected_when_significant(self):
         """Large history with high savings → compress stats injected (after patterns)."""
@@ -176,13 +176,10 @@ class TestCompressInPreTurn:
             model="gpt-4o",
         )
 
-        # Should return context with compression stats (no pattern/budget/growth triggered)
+        # Compress stats must NOT be injected (log-only mode)
         if result is not None:
-            assert isinstance(result, dict)
             ctx = result.get("context", "")
-            if ctx:
-                assert "RTK-CK" in ctx
-                assert "%" in ctx or "savings" in ctx or "compressed" in ctx
+            assert "COMPRESS" not in ctx, "compress must not inject into user message"
 
     def test_compress_stats_empty_for_small_history(self):
         """Small history → no compression inject."""
@@ -202,7 +199,7 @@ class TestCompressInPreTurn:
 
 
 class TestDedupInPreTurn:
-    """pre_llm_call hook runs Deduplicator when volatile/prefetch kwargs provided."""
+    """pre_llm_call hook runs Deduplicator — log-only, NO injection."""
 
     def test_volatile_and_prefetch_matches_dedup_signal(self):
         """Volatile and prefetch overlap → dedup context injected."""
@@ -217,12 +214,11 @@ class TestDedupInPreTurn:
             volatile_text="User prefers concise responses.",
             prefetch_text="User prefers concise responses. Extra unique info.",
         )
-        # Dedup MUST fire when there's overlap
-        assert result is not None
-        assert isinstance(result, dict)
-        ctx = result.get("context", "")
-        assert "RTK-CK" in ctx
-        assert "dedup" in ctx.lower() or "duplicate" in ctx.lower()
+        # Dedup fires internally (logged) but NOT injected into user message
+        if result is not None:
+            ctx = result.get("context", "")
+            assert "dedup" not in ctx.lower()
+            assert "duplicate" not in ctx.lower()
 
     def test_volatile_and_prefetch_no_overlap_no_signal(self):
         """No overlap between volatile and prefetch → no dedup signal."""

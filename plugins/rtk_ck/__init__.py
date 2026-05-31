@@ -150,7 +150,11 @@ def rtk_ck_pre_turn(
         }
 
     # ── 4. Compress stats ───────────────────────────────────────────────
-    # Run compressor and inject stats if significant savings achieved
+    # Log-only: report savings to logger, but never inject into user message.
+    # Injection was causing visible noise ("📦 RTK-CK COMPRESS: history can be
+    # reduced X%...") appended to every agent response — the LLM cannot act on
+    # this info (/compress is a CLI slash command, not a tool), so it only
+    # pollutes the output. Use `rtk_ck_stat` tool or logs to inspect savings.
     try:
         from plugins.rtk_ck.compress import Compressor as _Compressor
         _, stats = _Compressor.compress(
@@ -163,13 +167,6 @@ def rtk_ck_pre_turn(
                 "RTK-CK/COMPRESS: session=%s savings=%s%%",
                 session_id, stats["savings_pct"],
             )
-            return {
-                "context": (
-                    f"📦 RTK-CK COMPRESS: history can be reduced {stats['savings_pct']:.0f}% "
-                    f"({stats['original_tokens']:,} → {stats['compressed_tokens']:,} tokens). "
-                    f"Consider /compress."
-                )
-            }
     except Exception:
         pass  # Compression is best-effort
 
@@ -186,6 +183,7 @@ def rtk_ck_pre_turn(
             return {"context": f"⚠️ RTK-CK {stale_signal.code}: {stale_signal.message}"}
 
     # ── 6. Dedup volatile vs prefetch ──────────────────────────────────
+    # Log-only: do not inject into user-facing output.
     volatile_text = kwargs.get("volatile_text")
     if volatile_text and prefetch_text:
         from plugins.rtk_ck.dedup import Deduplicator as _Dedup
@@ -197,7 +195,6 @@ def rtk_ck_pre_turn(
                 session_id, saved_chars,
             )
             _metrics.record_dedup(saved_chars)
-            return {"context": f"📦 RTK-CK DEDUP: removed ~{saved_chars} duplicate chars from prefetch"}
 
     return None
 

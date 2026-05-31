@@ -1,0 +1,37 @@
+{
+  "documents": {
+    "goal/problem.md": {
+      "hash": "",
+      "last_accepted": "2026-05-29",
+      "triggers": ["goal/stakeholders.md", "goal/requirements.md"]
+    },
+    "goal/stakeholders.md": {
+      "hash": "",
+      "last_accepted": "2026-05-29",
+      "triggers": ["goal/requirements.md"]
+    },
+    "goal/requirements.md": {
+      "hash": "",
+      "last_accepted": "2026-05-29",
+      "triggers": ["solution/solution.md"]
+    },
+    "solution/solution.md": {
+      "hash": "",
+      "last_accepted": "2026-05-29",
+      "triggers": ["failures/failures.md"]
+    },
+    "failures/failures.md": {
+      "hash": "",
+      "last_accepted": "2026-05-29",
+      "triggers": ["decisions/decisions.md"]
+    }
+  },
+  "decisionState": {},
+  "graph": [
+    {"from": "goal/problem.md", "to": "goal/stakeholders.md"},
+    {"from": "goal/problem.md", "to": "goal/requirements.md"},
+    {"from": "goal/stakeholders.md", "to": "goal/requirements.md"},
+    {"from": "goal/requirements.md", "to": "solution/solution.md"},
+    {"from": "solution/solution.md", "to": "failures/failures.md"}
+  ]
+}
