@@ -47,6 +47,7 @@ class FailoverReason(enum.Enum):
     # Model
     model_not_found = "model_not_found"  # 404 or invalid model — fallback to different model
     provider_policy_blocked = "provider_policy_blocked"  # Aggregator (e.g. OpenRouter) blocked the only endpoint due to account data/privacy policy
+    content_policy_blocked = "content_policy_blocked"  # Provider safety filter rejected this prompt — deterministic per-request, don't retry unchanged
 
     # Request format
     format_error = "format_error"        # 400 bad request — abort or strip + retry
@@ -98,12 +99,19 @@ _BILLING_PATTERNS = [
     "insufficient balance",
     "credit balance",
     "credits have been exhausted",
+    "credits exhausted",
+    "no usable credits",
+    "out of funds",
+    "run out of funds",
+    "balance_depleted",
     "top up your credits",
     "payment required",
     "billing hard limit",
     "exceeded your current quota",
     "account is deactivated",
     "plan does not include",
+    "model_not_supported_on_free_tier",
+    "not available on the free tier",
 ]
 
 # Patterns that indicate rate limiting (transient, will resolve)
