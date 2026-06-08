@@ -441,3 +441,11 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODELS_URL = f"{OPENROUTER_BASE_URL}/models"
 
 AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1"
+
+# Partial stream stub ID used for synthetic responses when a stream stalls
+# mid-tool-call. The conversation loop checks for this ID to detect and
+# recover from truncated streaming responses.
+PARTIAL_STREAM_STUB_ID = "partial-stream-stub"
+
+# Finish reason string used by providers that cap output by token length.
+FINISH_REASON_LENGTH = "length"
