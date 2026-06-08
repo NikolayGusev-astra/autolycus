@@ -915,9 +915,15 @@ def handle_function_call(
     task_id: Optional[str] = None,
     tool_call_id: Optional[str] = None,
     session_id: Optional[str] = None,
+    turn_id: Optional[str] = None,
+    api_request_id: Optional[str] = None,
     user_task: Optional[str] = None,
     enabled_tools: Optional[List[str]] = None,
     skip_pre_tool_call_hook: bool = False,
+    skip_tool_request_middleware: bool = False,
+    tool_request_middleware_trace: Optional[List[Dict[str, Any]]] = None,
+    enabled_toolsets: Optional[List[str]] = None,
+    disabled_toolsets: Optional[List[str]] = None,
 ) -> str:
     """
     Main function call dispatcher that routes calls to the tool registry.

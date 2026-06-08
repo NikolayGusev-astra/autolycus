@@ -2917,6 +2917,7 @@ class AIAgent:
         original_user_message: Any,
         final_response: Any,
         interrupted: bool,
+        messages: list | None = None,
     ) -> None:
         """Mirror a completed turn into external memory providers.
 
