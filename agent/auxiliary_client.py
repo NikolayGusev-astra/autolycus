@@ -318,6 +318,35 @@ _OR_HEADERS_BASE = {
 _TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
 
 
+def _apply_user_default_headers(headers: dict | None) -> dict | None:
+    """Merge user-configured ``model.default_headers`` onto resolved headers.
+
+    User values take precedence over provider/SDK defaults, mirroring the main
+    agent client (``AIAgent._apply_user_default_headers``). This lets a
+    ``custom`` OpenAI-compatible endpoint behind a gateway/WAF that rejects the
+    OpenAI SDK's identifying headers (``User-Agent: OpenAI/Python ...``,
+    ``X-Stainless-*``) override them for auxiliary calls too — otherwise the
+    main turn would succeed but title/compression/vision calls to the same
+    endpoint would still fail. (#40033)
+
+    Returns the merged dict, or the original ``headers`` (possibly ``None``)
+    when nothing is configured. No allocation when there are no overrides.
+    """
+    try:
+        from hermes_cli.config import cfg_get, load_config
+        user_headers = cfg_get(load_config(), "model", "default_headers")
+    except Exception:
+        return headers
+    if not isinstance(user_headers, dict) or not user_headers:
+        return headers
+    merged = dict(headers or {})
+    for key, value in user_headers.items():
+        if value is None:
+            continue
+        merged[str(key)] = str(value)
+    return merged or headers
+
+
 def build_or_headers(or_config: dict | None = None) -> dict:
     """Build OpenRouter headers, optionally including response-cache headers.
 

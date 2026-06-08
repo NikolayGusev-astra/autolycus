@@ -70,6 +70,31 @@ from pathlib import Path
 
 from hermes_constants import get_hermes_home
 
+
+def _launch_cwd_for_session(source: str) -> Optional[str]:
+    """Working directory to stamp on a new session row, or None.
+
+    Only local CLI sessions get a recorded cwd: the directory the process was
+    launched from is meaningful for ``hermes -c`` / ``--resume`` (relaunch
+    where you left off). Gateway/cron/remote-backend sessions have no stable
+    host cwd to restore, so they record nothing.
+
+    ``TERMINAL_ENV`` is set by the CLI's config bridge (``load_cli_config``);
+    a non-"local" backend (docker/ssh/modal/...) means the host cwd is
+    irrelevant to the agent's tools, so we skip it there too.
+    """
+    if source != "cli":
+        return None
+    backend = (os.environ.get("TERMINAL_ENV") or "local").strip().lower()
+    if backend and backend != "local":
+        return None
+    try:
+        return os.getcwd()
+    except OSError:
+        # cwd was unlinked out from under us — nothing meaningful to record.
+        return None
+
+
 # OpenAI lazy proxy + safe stdio + proxy URL helpers — see agent/process_bootstrap.py.
 # `OpenAI` is re-exported here so `patch("run_agent.OpenAI", ...)` in tests works.
 from agent.process_bootstrap import (
@@ -124,6 +149,7 @@ from agent.memory_manager import StreamingContextScrubber, build_memory_context_
 from agent.think_scrubber import StreamingThinkScrubber
 from agent.retry_utils import jittered_backoff
 from agent.error_classifier import classify_api_error, FailoverReason
+from agent.redact import redact_sensitive_text
 from agent.prompt_builder import (
     DEFAULT_AGENT_IDENTITY, PLATFORM_HINTS,
     MEMORY_GUIDANCE, SESSION_SEARCH_GUIDANCE, SKILLS_GUIDANCE,
@@ -201,7 +227,7 @@ from agent.tool_dispatch_helpers import (
     _extract_error_preview,
     _trajectory_normalize_msg,
 )
-from utils import atomic_json_write, base_url_host_matches, base_url_hostname, env_var_enabled, normalize_proxy_url
+from utils import atomic_json_write, base_url_host_matches, base_url_hostname, env_var_enabled, is_truthy_value, normalize_proxy_url
 from hermes_cli.config import cfg_get
 
 
@@ -530,6 +556,75 @@ class AIAgent:
                 "Session DB creation failed (will retry next turn): %s", e
             )
 
+    def _transition_context_engine_session(
+        self,
+        *,
+        old_session_id: Optional[str] = None,
+        new_session_id: Optional[str] = None,
+        previous_messages: Optional[list] = None,
+        carry_over_context: bool = False,
+        reset_engine: bool = True,
+        **extra_context,
+    ) -> None:
+        """Notify the active context engine about a host session transition.
+
+        Generic host-side lifecycle helper. The built-in compressor keeps its
+        existing reset behavior; plugin engines that implement richer hooks
+        (``on_session_end``, ``on_session_reset``, ``on_session_start``,
+        ``carry_over_new_session_context``) can flush old-session state,
+        reset runtime counters, bind to the new session, and optionally
+        carry retained context forward.
+        """
+        engine = getattr(self, "context_compressor", None)
+        if not engine:
+            return
+
+        if old_session_id and previous_messages is not None and hasattr(engine, "on_session_end"):
+            try:
+                engine.on_session_end(old_session_id, previous_messages)
+            except Exception as exc:
+                logger.debug("context engine on_session_end during transition: %s", exc)
+
+        if reset_engine and hasattr(engine, "on_session_reset"):
+            try:
+                engine.on_session_reset()
+            except Exception as exc:
+                logger.debug("context engine on_session_reset during transition: %s", exc)
+
+        should_start = bool(
+            old_session_id
+            or previous_messages is not None
+            or carry_over_context
+            or extra_context
+        )
+        target_session_id = new_session_id or getattr(self, "session_id", "") or ""
+        if should_start and target_session_id and hasattr(engine, "on_session_start"):
+            start_context = {
+                "old_session_id": old_session_id,
+                "carry_over_context": carry_over_context,
+                "platform": getattr(self, "platform", None) or os.environ.get("HERMES_SESSION_SOURCE", "cli"),
+                "model": getattr(self, "model", ""),
+                "context_length": getattr(engine, "context_length", None),
+                "conversation_id": getattr(self, "_gateway_session_key", None),
+            }
+            start_context.update(extra_context)
+            start_context = {k: v for k, v in start_context.items() if v not in (None, "")}
+            try:
+                engine.on_session_start(target_session_id, **start_context)
+            except Exception as exc:
+                logger.debug("context engine on_session_start during transition: %s", exc)
+
+        if (
+            carry_over_context
+            and old_session_id
+            and target_session_id
+            and hasattr(engine, "carry_over_new_session_context")
+        ):
+            try:
+                engine.carry_over_new_session_context(old_session_id, target_session_id)
+            except Exception as exc:
+                logger.debug("context engine carry_over_new_session_context during transition: %s", exc)
+
     def reset_session_state(self):
         """Reset all session-scoped token counters to 0 for a fresh session.
         
@@ -721,6 +816,137 @@ class AIAgent:
                 self.status_callback("warn", message)
             except Exception:
                 logger.debug("status_callback error in _emit_warning", exc_info=True)
+
+    def _emit_notice(self, notice) -> None:
+        """Fire a structured ``AgentNotice`` to the active driver (TUI / CLI).
+
+        Driver-agnostic: the bound ``notice_callback`` renders it however that
+        driver does (TUI status-bar override, CLI console line). Swallows all
+        callback errors — a notice must NEVER break the agent loop (D-D fail-open).
+        """
+        if self.notice_callback:
+            try:
+                self.notice_callback(notice)
+            except Exception:
+                logger.debug("notice_callback error in _emit_notice", exc_info=True)
+
+    def _emit_notice_clear(self, key: str) -> None:
+        """Clear a previously-fired sticky notice by ``key`` (e.g. on recovery)."""
+        if self.notice_clear_callback:
+            try:
+                self.notice_clear_callback(key)
+            except Exception:
+                logger.debug("notice_clear_callback error in _emit_notice_clear", exc_info=True)
+
+    # ── Buffered retry/fallback status ────────────────────────────────────
+    # Retry and fallback chains were flooding the CLI/gateway with status
+    # noise that users found confusing: a single transient 429 could produce
+    # 10+ "Provider/Endpoint/Retrying in 5s..." lines before the request
+    # eventually succeeded.  The buffered helpers below capture these
+    # status messages instead of emitting them immediately.  They are
+    # flushed (shown to the user) ONLY when every retry and fallback has
+    # been exhausted; on success they are silently dropped.  Backend logs
+    # (agent.log) are unaffected — every individual emission site still
+    # writes to ``logger.warning`` / ``logger.info`` for diagnosis.
+
+    def _buffer_status(self, message: str) -> None:
+        """Buffer a retry/fallback status message.
+
+        Stored as a (kind, text) tuple where ``kind`` is one of:
+        - ``"status"``  -> replays via ``_emit_status``
+        - ``"vprint"``  -> replays via ``_vprint(force=True)``
+        - ``"warn"``    -> replays via ``_emit_warning``
+        Used to defer noisy retry chatter until we know whether the
+        turn ultimately recovered or failed.
+        """
+        try:
+            buf = getattr(self, "_retry_status_buffer", None)
+            if buf is None:
+                buf = []
+                self._retry_status_buffer = buf
+            buf.append(("status", message))
+        except Exception:
+            # Never break the retry loop on a buffer hiccup.
+            pass
+
+    def _buffer_vprint(self, message: str) -> None:
+        """Buffer a vprint(force=True) retry/fallback line."""
+        try:
+            buf = getattr(self, "_retry_status_buffer", None)
+            if buf is None:
+                buf = []
+                self._retry_status_buffer = buf
+            buf.append(("vprint", message))
+        except Exception:
+            pass
+
+    def _clear_status_buffer(self) -> None:
+        """Drop buffered retry messages — call on successful recovery."""
+        try:
+            buf = getattr(self, "_retry_status_buffer", None)
+            if buf:
+                buf.clear()
+        except Exception:
+            pass
+
+    def _flush_status_buffer(self) -> None:
+        """Emit buffered retry messages — call on terminal failure.
+
+        Surfaces the full retry/fallback trace so the user can see what
+        was tried before the turn gave up.
+        """
+        try:
+            buf = getattr(self, "_retry_status_buffer", None)
+            if not buf:
+                return
+            # Drain first so a callback exception doesn't double-emit.
+            messages = list(buf)
+            buf.clear()
+            for kind, msg in messages:
+                try:
+                    if kind == "status":
+                        self._emit_status(msg)
+                    elif kind == "warn":
+                        self._emit_warning(msg)
+                    else:
+                        self._vprint(f"{self.log_prefix}{msg}", force=True)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _disable_codex_reasoning_replay(
+        self,
+        messages: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, int]:
+        """Disable Responses encrypted reasoning replay and strip cached state.
+
+        Called from the conversation_loop retry path when the provider
+        rejects a replayed ``codex_reasoning_items`` blob with HTTP 400
+        ``invalid_encrypted_content``.  Sets ``self._codex_reasoning_replay_enabled``
+        to ``False`` (consumed by ``codex_responses_adapter._chat_messages_to_responses_input``
+        and ``transports/codex.py`` to drop ``reasoning.encrypted_content``
+        from subsequent requests) and pops ``codex_reasoning_items`` from
+        every assistant message in ``messages`` so they cannot be replayed
+        again later in the session.
+
+        Returns a small stats dict ``{"messages": int, "items": int}``
+        counting what was stripped — purely for diagnostic logging.
+        """
+        stripped_messages = 0
+        stripped_items = 0
+        target_messages = messages if isinstance(messages, list) else []
+
+        for msg in target_messages:
+            if not isinstance(msg, dict) or msg.get("role") != "assistant":
+                continue
+            items = msg.pop("codex_reasoning_items", None)
+            if isinstance(items, list) and items:
+                stripped_messages += 1
+                stripped_items += len(items)
+
+        self._codex_reasoning_replay_enabled = False
+        return {"messages": stripped_messages, "items": stripped_items}
 
     # Stream-diagnostic class header preserved for backward compat —
     # actual list lives in ``agent.stream_diag.STREAM_DIAG_HEADERS``.
@@ -921,6 +1147,58 @@ class AIAgent:
             return max(stale_base, 450.0)
         return stale_base
 
+    def _codex_silent_hang_hint(self, model: Optional[str] = None) -> Optional[str]:
+        """Return an actionable hint when this request matches a known
+        Codex silent-reject configuration, else ``None``.
+
+        The ChatGPT Codex backend (``chatgpt.com/backend-api/codex``) has
+        historically silently dropped certain model requests: the connection
+        is accepted but no stream events are emitted and no error is raised.
+        The stale-call detector ends the hang, but a generic "timed out"
+        message gives the user no path forward.
+
+        This helper substitutes an actionable hint into the stale-timeout
+        warning when the request matches a known silent-reject pattern.
+        Currently flagged: ``gpt-5.5`` family on the Codex backend.  See
+        hermes-agent #21444 for the symptom history.  The upstream backend
+        behavior has historically come and gone with ChatGPT entitlement
+        changes — the heuristic stays in place as future-proofing even when
+        the symptom is dormant.
+
+        Does NOT fix the backend issue.  Only converts an opaque stale-timeout
+        into actionable text so users learn the workaround in seconds rather
+        than digging through logs.
+        """
+        if self.api_mode != "codex_responses":
+            return None
+        is_codex_backend = (
+            self.provider == "openai-codex"
+            or (
+                getattr(self, "_base_url_hostname", "") == "chatgpt.com"
+                and "/backend-api/codex" in (getattr(self, "_base_url_lower", "") or "")
+            )
+        )
+        if not is_codex_backend:
+            return None
+        eff_model = (model if model is not None else self.model) or ""
+        model_lower = eff_model.lower()
+        # Match the gpt-5.5 family — bare ``gpt-5.5``, ``gpt-5.5-codex``,
+        # vendor-prefixed variants like ``openai/gpt-5.5``, and any future
+        # ``gpt-5.5-*`` SKU.  Anchor at a word boundary on either side so
+        # unrelated tokens like ``gpt-5.50`` do not match.
+        if not re.search(r"(?:^|[/\-_])gpt-5\.5(?:$|[_\-])", model_lower):
+            return None
+        return (
+            f"Codex backend appears to be silently rejecting {eff_model!r} "
+            "on chatgpt.com/backend-api/codex (no stream events, no error). "
+            "This is a known backend-side pattern that has affected ChatGPT "
+            "Plus accounts intermittently. "
+            "Workaround: try `gpt-5.4` on the same OAuth profile, or `gpt-5.3-codex`, "
+            "or switch to a different model/provider in your fallback chain. "
+            "Some ChatGPT Codex accounts do not support `gpt-5.4-codex`. "
+            "See hermes-agent#21444 for symptom history."
+        )
+
     def _is_openrouter_url(self) -> bool:
         """Return True when the base URL targets OpenRouter."""
         return base_url_host_matches(self._base_url_lower, "openrouter.ai")
@@ -986,6 +1264,21 @@ class AIAgent:
         if self._is_direct_openai_url() or self._is_azure_openai_url() or self._is_github_copilot_url():
             return {"max_completion_tokens": value}
         return {"max_tokens": value}
+
+    @staticmethod
+    def _requested_output_cap_from_api_kwargs(api_kwargs: Any) -> Optional[int]:
+        """Extract the outgoing response token cap from a prepared request."""
+        if not isinstance(api_kwargs, dict):
+            return None
+        for key in ("max_output_tokens", "max_completion_tokens", "max_tokens"):
+            raw = api_kwargs.get(key)
+            try:
+                value = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if value > 0:
+                return value
+        return None
 
     def _has_content_after_think_block(self, content: str) -> bool:
         """
@@ -1427,6 +1720,63 @@ class AIAgent:
         return False
 
     @staticmethod
+    def _decorate_xai_entitlement_error(detail: str) -> str:
+        """Append a neutral hint when xAI's OAuth surface returns the
+        permission-denied 403.
+
+        xAI's ``/v1/responses`` endpoint replies to several distinct failure
+        modes with the SAME body::
+
+            {"code": "The caller does not have permission to execute the
+             specified operation", "error": "You have either run out of
+             available resources or do not have an active Grok subscription.
+             Manage subscriptions at https://grok.com/?_s=usage or subscribe
+             at https://grok.com/supergrok"}
+
+        That body covers several real causes we cannot distinguish without
+        more info from xAI.  The most common (and least obvious) one is
+        that **X Premium+ does NOT include API access** — only standalone
+        SuperGrok subscribers can use Hermes against xai-oauth.  Lots of
+        users see Grok in their X app, assume it works here too, and hit
+        this 403 with no idea why.  Lead the hint with that.
+
+        Other possible causes:
+          * No Grok subscription at all
+          * SuperGrok tier doesn't include the requested model (e.g.
+            grok-4.3 may need a higher tier)
+          * Monthly quota exhausted (the ``?_s=usage`` URL hints at this)
+
+        Surface the raw xAI text verbatim and point at
+        https://grok.com/?_s=usage where the user can see WHICH applies.
+
+        Matched once per detail string — won't double-decorate if the
+        upstream already concatenated the same text.
+        """
+        if not detail:
+            return detail
+        lower = detail.lower()
+        is_entitlement = (
+            "do not have an active grok subscription" in lower
+            or ("out of available resources" in lower and "grok" in lower)
+            or ("does not have permission" in lower and "grok" in lower)
+        )
+        if not is_entitlement:
+            return detail
+        hint = (
+            " — xAI rejected this OAuth account. NOTE: X Premium+ does NOT "
+            "include xAI API access — only standalone SuperGrok subscribers "
+            "can use this provider. Other possible causes: no Grok "
+            "subscription, your tier doesn't include this model, or your "
+            "quota is exhausted. Check https://grok.com/?_s=usage to see "
+            "which, or run `/model` to switch providers."
+        )
+        # Idempotency: detect prior decoration by a substring unique to the
+        # hint (not present in xAI's own body text).
+        if "X Premium+ does NOT include" in detail:
+            return detail
+        return f"{detail}{hint}"
+
+    @staticmethod
     def _summarize_api_error(error: Exception) -> str:
         """Extract a human-readable one-liner from an API error.
 
@@ -1465,12 +1815,12 @@ class AIAgent:
             if msg:
                 status_code = getattr(error, "status_code", None)
                 prefix = f"HTTP {status_code}: " if status_code else ""
-                return f"{prefix}{msg[:300]}"
+                return AIAgent._decorate_xai_entitlement_error(f"{prefix}{msg[:300]}")
 
         # Fallback: truncate the raw string but give more room than 200 chars
         status_code = getattr(error, "status_code", None)
         prefix = f"HTTP {status_code}: " if status_code else ""
-        return f"{prefix}{raw[:500]}"
+        return AIAgent._decorate_xai_entitlement_error(f"{prefix}{raw[:500]}")
 
     def _mask_api_key_for_logs(self, key: Any) -> Optional[str]:
         # Azure Foundry Entra ID bearer providers are callables — never
@@ -1531,6 +1881,254 @@ class AIAgent:
         summary["total_tokens"] = cu.total_tokens
         return summary
 
+    @staticmethod
+    def _hook_payload_max_chars() -> int:
+        raw = os.getenv("HERMES_PLUGIN_PAYLOAD_MAX_CHARS", "50000")
+        try:
+            return max(1000, int(raw))
+        except (TypeError, ValueError):
+            return 50000
+
+    @staticmethod
+    def _is_sensitive_hook_key(key: Any) -> bool:
+        if not isinstance(key, str):
+            return False
+        lowered = key.lower().replace("-", "_")
+        exact = {
+            "api_key",
+            "authorization",
+            "proxy_authorization",
+            "cookie",
+            "set_cookie",
+        }
+        return lowered in exact or lowered.endswith("_api_key")
+
+    @classmethod
+    def _hook_jsonable(
+        cls,
+        value: Any,
+        *,
+        depth: int = 0,
+        max_depth: int = 8,
+        max_string: int = 8000,
+        max_sequence: int = 200,
+    ) -> Any:
+        if depth > max_depth:
+            return f"<{type(value).__name__} depth limit>"
+        if value is None or isinstance(value, (bool, int, float)):
+            return value
+        if isinstance(value, str):
+            if len(value) > max_string:
+                return value[:max_string] + f"...[truncated {len(value) - max_string} chars]"
+            return value
+        if isinstance(value, (bytes, bytearray)):
+            return f"<{len(value)} bytes>"
+        if isinstance(value, dict):
+            out: Dict[str, Any] = {}
+            for idx, (key, item) in enumerate(value.items()):
+                if idx >= max_sequence:
+                    out["_truncated_items"] = len(value) - max_sequence
+                    break
+                str_key = str(key)
+                if cls._is_sensitive_hook_key(str_key):
+                    out[str_key] = "<redacted>"
+                else:
+                    out[str_key] = cls._hook_jsonable(
+                        item,
+                        depth=depth + 1,
+                        max_depth=max_depth,
+                        max_string=max_string,
+                        max_sequence=max_sequence,
+                    )
+            return out
+        if isinstance(value, (list, tuple, set)):
+            seq = list(value)
+            out = [
+                cls._hook_jsonable(
+                    item,
+                    depth=depth + 1,
+                    max_depth=max_depth,
+                    max_string=max_string,
+                    max_sequence=max_sequence,
+                )
+                for item in seq[:max_sequence]
+            ]
+            if len(seq) > max_sequence:
+                out.append({"_truncated_items": len(seq) - max_sequence})
+            return out
+        try:
+            if hasattr(value, "model_dump"):
+                try:
+                    dumped = value.model_dump(mode="json")
+                except TypeError:
+                    dumped = value.model_dump()
+                return cls._hook_jsonable(
+                    dumped,
+                    depth=depth + 1,
+                    max_depth=max_depth,
+                    max_string=max_string,
+                    max_sequence=max_sequence,
+                )
+        except Exception:
+            pass
+        try:
+            from dataclasses import asdict, is_dataclass
+            if is_dataclass(value):
+                return cls._hook_jsonable(
+                    asdict(value),
+                    depth=depth + 1,
+                    max_depth=max_depth,
+                    max_string=max_string,
+                    max_sequence=max_sequence,
+                )
+        except Exception:
+            pass
+        if isinstance(value, SimpleNamespace):
+            return cls._hook_jsonable(
+                vars(value),
+                depth=depth + 1,
+                max_depth=max_depth,
+                max_string=max_string,
+                max_sequence=max_sequence,
+            )
+        if hasattr(value, "__dict__"):
+            try:
+                public_attrs = {
+                    k: v
+                    for k, v in vars(value).items()
+                    if not str(k).startswith("_")
+                }
+                return cls._hook_jsonable(
+                    public_attrs,
+                    depth=depth + 1,
+                    max_depth=max_depth,
+                    max_string=max_string,
+                    max_sequence=max_sequence,
+                )
+            except Exception:
+                pass
+        return str(value)[:max_string]
+
+    @classmethod
+    def _sanitize_hook_payload(cls, value: Any) -> Any:
+        payload = cls._hook_jsonable(value)
+        limit = cls._hook_payload_max_chars()
+        try:
+            encoded = json.dumps(payload, ensure_ascii=False, default=str)
+        except Exception:
+            return str(payload)[:limit]
+        if len(encoded) <= limit:
+            return payload
+        payload = cls._hook_jsonable(value, max_string=1000, max_sequence=50)
+        try:
+            encoded = json.dumps(payload, ensure_ascii=False, default=str)
+        except Exception:
+            return str(payload)[:limit]
+        if len(encoded) <= limit:
+            return payload
+        return {
+            "_truncated": True,
+            "original_type": type(value).__name__,
+            "preview": encoded[:limit],
+        }
+
+    def _api_request_payload_for_hook(self, api_kwargs: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        body = {
+            key: value
+            for key, value in (api_kwargs or {}).items()
+            if key not in {"timeout", "http_client"}
+        }
+        return self._sanitize_hook_payload(
+            {
+                "method": "POST",
+                "body": body,
+            }
+        )
+
+    def _api_response_payload_for_hook(
+        self,
+        response: Any,
+        assistant_message: Any,
+        *,
+        finish_reason: Optional[str],
+    ) -> Dict[str, Any]:
+        # ``tool_calls`` is the raw list of provider SDK objects (e.g.
+        # OpenAI ``ChatCompletionMessageToolCall``).  We deliberately hand
+        # the raw objects to ``_sanitize_hook_payload`` and rely on
+        # ``_hook_jsonable`` to normalise them via ``model_dump`` /
+        # ``__dict__`` / dataclass introspection — a future refactor of
+        # the sanitiser MUST preserve that capability or hook subscribers
+        # will receive opaque ``str(obj)`` blobs here.
+        tool_calls = getattr(assistant_message, "tool_calls", None) or []
+        return self._sanitize_hook_payload(
+            {
+                "model": getattr(response, "model", None),
+                "finish_reason": finish_reason,
+                "assistant_message": {
+                    "role": getattr(assistant_message, "role", "assistant"),
+                    "content": getattr(assistant_message, "content", None),
+                    "tool_calls": tool_calls,
+                },
+                "usage": self._usage_summary_for_api_request_hook(response),
+            }
+        )
+
+    def _invoke_api_request_error_hook(
+        self,
+        *,
+        task_id: str,
+        turn_id: str,
+        api_request_id: str,
+        api_call_count: int,
+        api_start_time: float,
+        api_kwargs: Optional[Dict[str, Any]],
+        error_type: str,
+        error_message: str,
+        status_code: Optional[int] = None,
+        retry_count: Optional[int] = None,
+        max_retries: Optional[int] = None,
+        retryable: Optional[bool] = None,
+        reason: Optional[str] = None,
+    ) -> None:
+        # Lazy module import (not from-import) so tests that
+        # ``monkeypatch.setattr("hermes_cli.plugins.has_hook", ...)`` still
+        # take effect on this call site. After first call the import is a
+        # ``sys.modules`` dict lookup, so retries don't repay any real cost.
+        try:
+            from hermes_cli import plugins as _plugins
+
+            if not _plugins.has_hook("api_request_error"):
+                return
+            ended_at = time.time()
+            _plugins.invoke_hook(
+                "api_request_error",
+                task_id=task_id,
+                turn_id=turn_id,
+                api_request_id=api_request_id,
+                session_id=self.session_id or "",
+                platform=self.platform or "",
+                model=self.model,
+                provider=self.provider,
+                base_url=self.base_url,
+                api_mode=self.api_mode,
+                api_call_count=api_call_count,
+                api_duration=ended_at - api_start_time,
+                started_at=api_start_time,
+                ended_at=ended_at,
+                status_code=status_code,
+                retry_count=retry_count,
+                max_retries=max_retries,
+                retryable=retryable,
+                reason=reason,
+                error={
+                    "type": error_type,
+                    "message": error_message,
+                },
+                request=self._api_request_payload_for_hook(api_kwargs),
+            )
+        except Exception:
+            pass
+
     def _dump_api_request_debug(
         self,
         api_kwargs: Dict[str, Any],
@@ -1551,6 +2149,36 @@ class AIAgent:
         content = re.sub(r'\n+(<think>)', r'\n\1', content)
         content = re.sub(r'(</think>)\n+', r'\1\n', content)
         return content.strip()
+
+    @staticmethod
+    def _redact_message_content(content):
+        """Apply secret redaction to message content (str or list-of-parts).
+
+        Handles both plain-string content and the OpenAI/Anthropic multimodal
+        shape where ``content`` is a list of ``{"type": "text", "text": ...}``
+        / ``{"type": "image_url", ...}`` / ``{"type": "input_text", "content": ...}``
+        parts. Image / binary parts are left untouched; only text fields are
+        passed through ``redact_sensitive_text``.
+
+        Respects ``HERMES_REDACT_SECRETS`` via ``redact_sensitive_text`` —
+        when disabled the helper is effectively a no-op.
+        """
+        if content is None:
+            return content
+        if isinstance(content, str):
+            return redact_sensitive_text(content)
+        if isinstance(content, list):
+            redacted = []
+            for part in content:
+                if isinstance(part, dict):
+                    part = dict(part)
+                    if isinstance(part.get("text"), str):
+                        part["text"] = redact_sensitive_text(part["text"])
+                    if isinstance(part.get("content"), str):
+                        part["content"] = redact_sensitive_text(part["content"])
+                redacted.append(part)
+            return redacted
+        return content
 
     def _save_session_log(self, messages: List[Dict[str, Any]] = None):
         """Optional per-session JSON snapshot writer.
@@ -1849,13 +2477,48 @@ class AIAgent:
             pass
         return True  # safe default: verifier on
 
-    @staticmethod
-    def _format_file_mutation_failure_footer(failed: Dict[str, Dict[str, Any]]) -> str:
+    # Bare absolute / home / Windows-drive file paths in a footer line.
+    # Anchors mirror the gateway's ``extract_local_files`` bare-path
+    # detector so that anything the gateway WOULD auto-attach is wrapped
+    # in inline-code backticks here first (the extractor skips paths inside
+    # `code` spans).  Defense-in-depth: even if a future error message
+    # echoes a credential path (config.yaml, .env, auth.json) into the
+    # user-facing footer, it can never be matched as a deliverable bare
+    # path and silently uploaded to a messaging channel (#35584).
+    _FOOTER_PATH_RE = re.compile(
+        r"(?<![/:\\w.`])(?:~/|/|[A-Za-z]:[/\\\\])(?:[\\w.\\-]+[/\\\\])*[\\w.\\-]+\\.[\\w]+",
+    )
+
+    @classmethod
+    def _neutralize_footer_paths(cls, text: str) -> str:
+        """Wrap bare file paths in backticks so they aren't auto-delivered.
+
+        The gateway's ``extract_local_files`` scans response text for bare
+        absolute/home paths ending in a deliverable extension and uploads
+        any that exist on disk as native attachments — but it explicitly
+        skips paths inside inline-code (`` `...` ``) spans.  Backticking
+        every path the footer renders defeats that auto-detection while
+        keeping the path fully human-readable.  Paths already wrapped in a
+        backtick (the negative lookbehind excludes a preceding `` ` ``) are
+        left untouched so we never double-wrap.
+        """
+        if not text:
+            return text
+        return cls._FOOTER_PATH_RE.sub(lambda m: f"`{m.group(0)}`", text)
+
+    @classmethod
+    def _format_file_mutation_failure_footer(cls, failed: Dict[str, Dict[str, Any]]) -> str:
         """Render the per-turn failed-mutation dict as a user-facing footer.
 
         Displays up to 10 paths with their first error preview, then a
         count of any additional failures.  Returns an empty string when
         the dict is empty so callers can concatenate unconditionally.
+
+        Every file path that reaches the user-facing text — both the bullet
+        path and any path echoed inside the tool's error preview — is
+        backtick-wrapped via ``_neutralize_footer_paths`` so the gateway's
+        bare-path media extractor can never auto-attach a protected file
+        (e.g. ``~/.hermes/config.yaml``) to a messaging channel (#35584).
         """
         if not failed:
             return ""
@@ -1872,14 +2535,137 @@ class AIAgent:
             preview = (info.get("error_preview") or "").strip()
             tool = info.get("tool") or "patch"
             if preview:
-                lines.append(f"  • {path} — [{tool}] {preview}")
+                lines.append(f"  • `{path}` — [{tool}] {preview}")
             else:
-                lines.append(f"  • {path} — [{tool}] failed")
+                lines.append(f"  • `{path}` — [{tool}] failed")
             shown += 1
         remaining = len(failed) - shown
         if remaining > 0:
             lines.append(f"  • … and {remaining} more")
-        return "\n".join(lines)
+        # Neutralize any path the preview text echoed (the bullet path is
+        # already backticked above; the lookbehind keeps it from being
+        # double-wrapped).
+        return cls._neutralize_footer_paths("\n".join(lines))
+
+    def _turn_completion_explainer_enabled(self) -> bool:
+        """Check whether the end-of-turn completion explainer footer is on.
+
+        Config path: ``display.turn_completion_explainer`` (bool, default
+        True).  ``HERMES_TURN_COMPLETION_EXPLAINER`` env var overrides
+        config.  Exposed as a method so tests can patch a single seam,
+        mirroring ``_file_mutation_verifier_enabled``.
+        """
+        try:
+            import os as _os
+            env = _os.environ.get("HERMES_TURN_COMPLETION_EXPLAINER")
+            if env is not None:
+                return env.strip().lower() not in {"0", "false", "no", "off"}
+            # Read from the persisted config.yaml so gateway and CLI share
+            # the same setting.  Import lazily to avoid a startup-time cycle.
+            try:
+                from hermes_cli.config import load_config as _load_config
+                _cfg = _load_config() or {}
+            except Exception:
+                _cfg = {}
+            _display = _cfg.get("display") if isinstance(_cfg, dict) else None
+            if isinstance(_display, dict) and "turn_completion_explainer" in _display:
+                return bool(_display.get("turn_completion_explainer"))
+        except Exception:
+            pass
+        return True  # safe default: explainer on
+
+    @staticmethod
+    def _format_turn_completion_explanation(turn_exit_reason: str) -> str:
+        """Render a user-facing explanation for an abnormal turn ending.
+
+        Maps the internal ``turn_exit_reason`` to a short, actionable
+        message so a turn that produced no usable assistant reply (empty
+        content after retries, a partial/truncated stream, a still-pending
+        tool result, or an iteration/budget limit) is never silent from
+        the UI's perspective — the symptom users report in #34452.
+
+        Returns an empty string for reasons that are NOT abnormal (e.g.
+        a normal ``text_response(...)`` exit), so callers can concatenate
+        or substitute unconditionally without warning on healthy turns
+        like a terse ``Done.``.
+        """
+        if not turn_exit_reason:
+            return ""
+        reason = str(turn_exit_reason)
+
+        # Normal completion — stay quiet.  ``text_response(...)`` is the
+        # healthy terminal; anything that produced a real reply is fine.
+        if reason.startswith("text_response"):
+            return ""
+
+        prefix = "⚠️ No reply: "
+        if reason == "empty_response_exhausted":
+            return (
+                prefix
+                + "the model returned empty content after retries and any "
+                "fallback providers. Try `continue`, switch model/provider, "
+                "or inspect the tool output above."
+            )
+        if reason == "all_retries_exhausted_no_response":
+            return (
+                prefix
+                + "all API retries were exhausted before a response was "
+                "produced (provider errors / rate limits). Try `continue` "
+                "or switch provider."
+            )
+        if reason == "partial_stream_recovery":
+            return (
+                prefix
+                + "streaming stopped early and only a partial response was "
+                "recovered. Send `continue` to resume from where it stopped."
+            )
+        if reason == "fallback_prior_turn_content":
+            return (
+                prefix
+                + "no new content was produced this turn; showing recovered "
+                "prior context. Send `continue` to retry."
+            )
+        if reason == "interrupted_during_api_call":
+            return (
+                prefix
+                + "the request was interrupted mid-call before a reply was "
+                "received. Send `continue` to retry."
+            )
+        if reason == "budget_exhausted":
+            return (
+                prefix
+                + "the per-turn iteration/cost budget was exhausted before a "
+                "final answer. Send `continue` to keep going."
+            )
+        if reason == "ollama_runtime_context_too_small":
+            return (
+                prefix
+                + "the local model's context window was too small to finish. "
+                "Increase the context size or use a larger model."
+            )
+        if reason.startswith("max_iterations_reached"):
+            return (
+                prefix
+                + "the maximum tool-iteration limit was reached before a "
+                "final answer. Send `continue` to keep going, or raise "
+                "`max_iterations`."
+            )
+        if reason.startswith("error_near_max_iterations"):
+            return (
+                prefix
+                + "an error occurred near the iteration limit before a final "
+                "answer. Check the tool output above, then send `continue`."
+            )
+        if reason == "pending_tool_result":
+            return (
+                prefix
+                + "the turn stopped while a tool result was still pending and "
+                "the model produced no follow-up text. Send `continue` to "
+                "let it summarize."
+            )
+        # Unknown/diagnostic-only reasons (e.g. "unknown", guardrail_halt
+        # which already surfaces its own message) — don't second-guess.
+        return ""
 
     def _apply_pending_steer_to_tool_results(self, messages: list, num_tool_msgs: int) -> None:
         """Forwarder — see ``agent.agent_runtime_helpers.apply_pending_steer_to_tool_results``."""
@@ -1913,6 +2699,125 @@ class AIAgent:
     def get_rate_limit_state(self):
         """Return the last captured RateLimitState, or None."""
         return self._rate_limit_state
+
+    def _capture_credits(self, http_response: Any) -> None:
+        """Parse x-nous-credits-* headers, cache CreditsState, fire threshold notices.
+
+        Fail-open throughout — header issues never break the agent loop. The PARSE is
+        swallowed (any error → treated as a miss → keep last-known). The notice
+        EVALUATION/EMIT is a SEPARATE block that WARNS on failure (R1-M2): a bug in the
+        depletion-notice path must not vanish silently under the parse swallow.
+        """
+        # Dev test fixture (HERMES_DEV_CREDITS_FIXTURE): inject a chosen notice state
+        # each turn for repeatable testing, bypassing real headers. Throwaway scaffolding.
+        try:
+            from agent.credits_tracker import dev_fixture_credits_state
+            _fixture = dev_fixture_credits_state()
+        except Exception:
+            _fixture = None
+        if _fixture is not None:
+            self._credits_state = _fixture
+            if self._credits_session_start_micros is None:
+                self._credits_session_start_micros = _fixture.remaining_micros
+            _latch = getattr(self, "_credits_latch", None)
+            if isinstance(_latch, dict):
+                _latch["seen_below_90"] = True  # let warn90 fire without a real crossing
+            _used = _fixture.used_fraction
+            logger.info(
+                "credits ▸ [FIXTURE] remaining=%d (%s) · paid=%s · denom=%s · used=%s "
+                "(real headers bypassed — `echo clear` / unset HERMES_DEV_CREDITS_FIXTURE to restore)",
+                _fixture.remaining_micros,
+                _fixture.remaining_usd or "?",
+                _fixture.paid_access,
+                _fixture.denominator_kind,
+                ("%.0f%%" % (_used * 100)) if _used is not None else "n/a",
+            )
+            self._emit_credits_notices()
+            return
+        if http_response is None:
+            return
+        headers = getattr(http_response, "headers", None)
+        if not headers:
+            return
+        _dev = is_truthy_value(os.environ.get("HERMES_DEV_CREDITS"))
+
+        # ── Parse (fail-open → miss; never overwrite good state with None) ──
+        try:
+            from agent.credits_tracker import parse_credits_headers
+            state = parse_credits_headers(headers, provider=self.provider)
+        except Exception:
+            return  # parse error → treat as a miss, keep last-known
+        if state is None:
+            if _dev:
+                logger.info(
+                    "credits ▸ response had no valid x-nous-credits-* headers "
+                    "(miss — producer off / non-Nous path / >TTL stale)"
+                )
+            return
+
+        # retain-last-known: only overwrite on a fresh valid parse
+        self._credits_state = state
+        # Latch session-start remaining the first time we ever see a header
+        if self._credits_session_start_micros is None:
+            self._credits_session_start_micros = state.remaining_micros
+        if _dev:
+            # HERMES_DEV_CREDITS: stream each capture to agent.log — watch live with
+            # `hermes logs -f` (grep 'credits ▸'). Dev-only; silent for normal users.
+            spent = self.get_credits_spent_micros()
+            used = state.used_fraction
+            logger.info(
+                "credits ▸ remaining=%d (%s) · paid=%s · denom=%s · used=%s "
+                "· Δspent=%s · age=%s%s",
+                state.remaining_micros,
+                state.remaining_usd or "?",
+                state.paid_access,
+                state.denominator_kind,
+                ("%.0f%%" % (used * 100)) if used is not None else "n/a",
+                ("%.1f¢" % (spent / 10000)) if spent is not None else "n/a",
+                ("%.0fs" % state.age_seconds) if state.age_seconds != float("inf") else "n/a",
+                (" · disabled=%s" % state.disabled_reason) if state.disabled_reason else "",
+            )
+
+        # Threshold notices — shared with the cold-start seed (see _emit_credits_notices).
+        self._emit_credits_notices()
+
+    def _emit_credits_notices(self) -> None:
+        """Run the threshold policy on the current credits state and emit notices.
+
+        Shared by the warm path (_capture_credits) and the L3 cold-start seed, so a
+        session that opens already depleted warns immediately — not only after the first
+        inference header. Runs only when a notice consumer is bound (messaging binds none
+        → state still cached for /usage, no policy). WARNS on failure rather than
+        swallowing (R1-M2): a depletion-path bug must not vanish silently. Emits clears
+        FIRST, then shows (so depleted lands last in a latest-wins slot).
+        """
+        if getattr(self, "notice_callback", None) is None and getattr(self, "notice_clear_callback", None) is None:
+            return
+        state = getattr(self, "_credits_state", None)
+        if state is None:
+            return
+        try:
+            from agent.credits_tracker import evaluate_credits_notices
+            latch = getattr(self, "_credits_latch", None)
+            if latch is None:
+                latch = self._credits_latch = {"active": set(), "seen_below_90": False, "usage_band": None}
+            to_show, to_clear = evaluate_credits_notices(state, latch)
+            for key in to_clear:        # clears FIRST …
+                self._emit_notice_clear(key)
+            for notice in to_show:      # … then shows (depleted lands last in a latest-wins slot)
+                self._emit_notice(notice)
+        except Exception:
+            logger.warning("credits notice evaluation/emit failed", exc_info=True)
+
+    def get_credits_state(self):
+        """Return the last captured CreditsState, or None."""
+        return self._credits_state
+
+    def get_credits_spent_micros(self):
+        """Session-cumulative micros spent = first_seen_remaining - current_remaining. None if no data."""
+        if self._credits_session_start_micros is None or self._credits_state is None:
+            return None
+        return self._credits_session_start_micros - self._credits_state.remaining_micros
 
     def _check_openrouter_cache_status(self, http_response: Any) -> None:
         """Read X-OpenRouter-Cache-Status from response headers and log it.
@@ -2888,6 +3793,41 @@ class AIAgent:
             else:
                 self._client_kwargs.pop("default_headers", None)
 
+        # User-configured overrides win over URL/profile defaults — keep them
+        # applied across credential swaps and client rebuilds, not just at
+        # first construction.
+        self._apply_user_default_headers()
+
+    def _apply_user_default_headers(self) -> None:
+        """Merge user-configured request headers onto the OpenAI client.
+
+        Reads ``model.default_headers`` from config.yaml and merges it onto
+        ``self._client_kwargs["default_headers"]``, with user values taking
+        precedence over provider- and SDK-supplied defaults.
+
+        This exists for ``custom`` OpenAI-compatible endpoints sitting behind
+        a gateway/WAF that rejects the OpenAI Python SDK's identifying headers
+        (``User-Agent: OpenAI/Python ...``, ``X-Stainless-*``). Setting e.g.
+        ``model.default_headers: {User-Agent: curl/8.7.1}`` lets the request
+        reach such an upstream instead of failing with an opaque 4xx/502 even
+        though the same body works under ``curl``. (#40033)
+
+        Delegates the config read + merge to
+        ``agent.auxiliary_client._apply_user_default_headers`` so the main and
+        auxiliary clients can never drift on precedence or value handling.
+
+        No-op for Anthropic/Bedrock modes, which don't use the OpenAI client,
+        and when no overrides are configured.
+        """
+        if self.api_mode in ("anthropic_messages", "bedrock_converse"):
+            return
+        from agent.auxiliary_client import (
+            _apply_user_default_headers as _merge_user_headers,
+        )
+        merged = _merge_user_headers(self._client_kwargs.get("default_headers"))
+        if merged:
+            self._client_kwargs["default_headers"] = merged
+
     def _swap_credential(self, entry) -> None:
         runtime_key = getattr(entry, "runtime_api_key", None) or getattr(entry, "access_token", "")
         runtime_base = getattr(entry, "runtime_base_url", None) or getattr(entry, "base_url", None) or self.base_url
@@ -3159,6 +4099,18 @@ class AIAgent:
         from agent.chat_completion_helpers import try_activate_fallback
         return try_activate_fallback(self, reason)
 
+    def _has_pending_fallback(self) -> bool:
+        """Whether a fallback provider is actually available to switch to.
+
+        Used to gate user-facing "trying fallback..." status so we don't
+        announce a fallback that will never be attempted (the user has no
+        fallback chain configured).  Mirrors the early-return guard in
+        ``try_activate_fallback`` (#35314, #17446).
+        """
+        chain = getattr(self, "_fallback_chain", None) or []
+        index = getattr(self, "_fallback_index", 0)
+        return index < len(chain)
+
     # ── Per-turn primary restoration ─────────────────────────────────────
 
     def _restore_primary_runtime(self) -> bool:
@@ -3286,6 +4238,23 @@ class AIAgent:
             return _lookup_supports_vision(provider, model, cfg) is True
         except Exception:
             return False
+
+    def _provider_supports_vision_tool_messages(self) -> bool:
+        """Return True if the active provider accepts list-type tool content.
+
+        Some providers (e.g. Xiaomi MiMo) support multimodal user messages
+        but reject list-type tool message content with 400 errors.  This
+        checks the provider profile's ``supports_vision_tool_messages`` field.
+        """
+        try:
+            from providers import get_provider_profile
+            provider = (getattr(self, "provider", "") or "").strip()
+            profile = get_provider_profile(provider)
+            if profile is not None:
+                return getattr(profile, "supports_vision_tool_messages", True)
+        except Exception:
+            pass
+        return True  # default: assume compatible
 
     def _preprocess_anthropic_content(self, content: Any, role: str) -> Any:
         if not self._content_has_image_parts(content):
@@ -3861,6 +4830,11 @@ class AIAgent:
         """Forwarder — see ``agent.agent_runtime_helpers.copy_reasoning_content_for_api``."""
         from agent.agent_runtime_helpers import copy_reasoning_content_for_api
         return copy_reasoning_content_for_api(self, source_msg, api_msg)
+
+    def _reapply_reasoning_echo_for_provider(self, api_messages: list) -> int:
+        """Forwarder — see ``agent.agent_runtime_helpers.reapply_reasoning_echo_for_provider``."""
+        from agent.agent_runtime_helpers import reapply_reasoning_echo_for_provider
+        return reapply_reasoning_echo_for_provider(self, api_messages)
 
     @staticmethod
     def _sanitize_tool_calls_for_strict_api(api_msg: dict) -> dict:
