@@ -1,5 +1,20 @@
 # Autolycus Agent - Development Guide
 
+## Host Infrastructure (autolycus-agent.ru)
+
+> Аудит 2026-06-09. Полная карточка: `/root/wiki/entities/autolycus-agent-ru.md`
+
+- **Хост:** autolycus-agent.ru (153.80.251.34), AdminVPS/AEZA, Москва
+- **OS:** Ubuntu 24.04, ядро 6.8.0-36-generic
+- **Ресурсы:** 4 CPU EPYC-Milan, 7.8GB RAM, 80GB NVMe (43GB free)
+- **GPU:** нет
+- **Docker:** 29.1.3, Python 3.12.3, Node 20.2.2, nginx 1.24.0, FastAPI 0.133.1
+- **Ключевые пути:** `/opt/autolycus` (cwd), `/root/autolycus/repo` (код), `/root/wiki/` (wiki), `/root/.autolycus/` (конфиг агента)
+- **Безопасность:** UFW active (22/80/443), fail2ban active
+- **⚠️ Старая карточка `hermes-agent-ru.md`** в `/root/wiki/entities/` — устаревшая, описывала NL VPN сервер. Не использовать.
+
+---
+
 Instructions for AI coding assistants and developers working on the autolycus codebase.
 
 ## Development Environment
