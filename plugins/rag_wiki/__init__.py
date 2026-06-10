@@ -60,21 +60,26 @@ def _run_rag_query(query: str, k: int = RAG_DEFAULT_K, agentic: bool = False) ->
             # Fallback to plain text
             return result.stdout.strip()
 
-        # Filter noise: exclude low-relevance and known noisy sources
+        # Filter noise: exclude low-relevance, known noisy sources, and auto-ingested content
         NOISE_PATTERNS = (
             "../wiki/queries/",
             "../wiki/raw/auto-findings/",
             "../wiki/session-notes/",
             "../wiki/raw/search_",
         )
+        NOISE_TAGS = {"auto-ingested", "auto-detected-finding"}
         MIN_SCORE = 0.5
 
         filtered = []
         for c in chunks:
             source = c.get("source", "")
             score = c.get("score", 0)
+            tags = c.get("tags", "")
             # Skip known noise directories
             if any(source.startswith(p) for p in NOISE_PATTERNS):
+                continue
+            # Skip by noisy tags
+            if tags and any(t in tags for t in NOISE_TAGS):
                 continue
             # Skip low relevance
             if score < MIN_SCORE:
