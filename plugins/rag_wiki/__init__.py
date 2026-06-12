@@ -244,6 +244,7 @@ def register(ctx: Any) -> None:
         },
         handler=_handle_rag_search,
         emoji="🔍",
+        override=True,
     )
 
     ctx.register_tool(
@@ -267,6 +268,7 @@ def register(ctx: Any) -> None:
         },
         handler=_handle_rag_index,
         emoji="📚",
+        override=True,
     )
 
     logger.info("RAG Wiki plugin registered: pre_llm_call hook + 2 tools")

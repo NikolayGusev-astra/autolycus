@@ -26,7 +26,7 @@ import chromadb
 from chromadb.config import Settings
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from rag_config import EMBEDDING_URL, EMBEDDING_MODEL, CHROMA_PATH, EMBEDDING_DIM
+from rag_config import EMBEDDING_URL, EMBEDDING_MODEL, CHROMA_PATH, EMBEDDING_DIM, SESSION_COLLECTION_NAME, INDEX_SESSIONS_IN_WIKI, SESSION_EMBED_PREFIX, COLLECTION_NAME
 
 STATE_DB = "/root/.autolycus/state.db"
 SESSION_COLLECTION = "sessions"
@@ -182,6 +182,7 @@ def index_all(incremental: bool = False):
     print(f"   State DB: {STATE_DB}", flush=True)
     print(f"   Embedding: {EMBEDDING_MODEL} ({EMBEDDING_DIM}d)", flush=True)
     print(f"   Chroma: {CHROMA_PATH}/{SESSION_COLLECTION}", flush=True)
+    print(f"   Index sessions in wiki: {INDEX_SESSIONS_IN_WIKI}", flush=True)
 
     conn = sqlite3.connect(STATE_DB)
 
@@ -203,6 +204,7 @@ def index_all(incremental: bool = False):
         settings=Settings(anonymized_telemetry=False),
     )
 
+    # ── Sessions collection ──────────────────────────────────────────────
     if not incremental:
         try:
             client.delete_collection(SESSION_COLLECTION)
@@ -211,33 +213,62 @@ def index_all(incremental: bool = False):
         state = {}
 
     try:
-        collection = client.get_collection(SESSION_COLLECTION)
-        print(f"   Existing: {collection.count()} chunks", flush=True)
+        sess_collection = client.get_collection(SESSION_COLLECTION)
+        print(f"   Existing sessions: {sess_collection.count()} chunks", flush=True)
     except Exception:
-        collection = client.create_collection(
+        sess_collection = client.create_collection(
             name=SESSION_COLLECTION,
             metadata={"hnsw:space": "cosine"}
         )
         state = {}
 
+    # ── Wiki collection (для session chunks) ────────────────────────────
+    wiki_collection = None
+    if INDEX_SESSIONS_IN_WIKI:
+        try:
+            wiki_collection = client.get_collection(COLLECTION_NAME)
+            print(f"   Existing wiki: {wiki_collection.count()} chunks", flush=True)
+        except Exception:
+            wiki_collection = None
+            print(f"   ⚠ Wiki collection '{COLLECTION_NAME}' not found, skipping wiki indexing", flush=True)
+
     batch_texts, batch_ids, batch_metadatas = [], [], []
+    # Буферы для wiki (используют другой префикс)
+    wiki_texts, wiki_ids, wiki_metadatas = [], [], []
     chunk_idx = 0
     BATCH_SIZE = 16
     indexed_sessions = 0
 
-    def flush():
+    def flush_sessions():
+        """Flush batch в sessions collection."""
         nonlocal chunk_idx
         if not batch_texts:
             return
         try:
             embs = embed_texts(batch_texts)
-            collection.add(embeddings=embs, documents=batch_texts, ids=batch_ids, metadatas=batch_metadatas)
-            print(f"   📥 Batch {len(batch_texts)} chunks → Chroma (total: {collection.count()})", flush=True)
+            sess_collection.add(embeddings=embs, documents=batch_texts, ids=batch_ids, metadatas=batch_metadatas)
+            print(f"   📥 Sessions batch {len(batch_texts)} chunks → Chroma (total: {sess_collection.count()})", flush=True)
         except Exception as e:
-            print(f"   ⚠ Batch failed: {e}", flush=True)
-        batch_texts.clear()
-        batch_ids.clear()
-        batch_metadatas.clear()
+            print(f"   ⚠ Sessions batch failed: {e}", flush=True)
+
+    def flush_wiki():
+        """Flush batch в wiki collection (session chunks с другим префиксом)."""
+        if not wiki_texts or wiki_collection is None:
+            return
+        try:
+            prefixed = [f"{SESSION_EMBED_PREFIX} {t[:2500]}" for t in wiki_texts]
+            resp = requests.post(EMBEDDING_URL, json={
+                "model": EMBEDDING_MODEL,
+                "input": prefixed
+            }, timeout=60)
+            resp.raise_for_status()
+            data = resp.json()
+            data["data"].sort(key=lambda x: x["index"])
+            embs = [item["embedding"] for item in data["data"]]
+            wiki_collection.add(embeddings=embs, documents=wiki_texts, ids=wiki_ids, metadatas=wiki_metadatas)
+            print(f"   📥 Wiki batch {len(wiki_texts)} session chunks → Chroma (total: {wiki_collection.count()})", flush=True)
+        except Exception as e:
+            print(f"   ⚠ Wiki batch failed: {e}", flush=True)
 
     for session in sessions:
         messages = get_messages(conn, session["id"])
@@ -251,16 +282,33 @@ def index_all(incremental: bool = False):
             batch_texts.append(c["text"])
             batch_ids.append(f"session:{session['id']}#{chunk_idx}")
             batch_metadatas.append(c["metadata"])
+            wiki_texts.append(c["text"])
+            wiki_ids.append(f"session:{session['id']}#{chunk_idx}")
+            wiki_metadatas.append(c["metadata"])
             chunk_idx += 1
 
             if len(batch_texts) >= BATCH_SIZE:
-                flush()
+                flush_wiki()
+                flush_sessions()
+                batch_texts.clear()
+                batch_ids.clear()
+                batch_metadatas.clear()
+                wiki_texts.clear()
+                wiki_ids.clear()
+                wiki_metadatas.clear()
 
         state[session["id"]] = session["message_count"]
         indexed_sessions += 1
 
     if batch_texts:
-        flush()
+        flush_wiki()
+        flush_sessions()
+        batch_texts.clear()
+        batch_ids.clear()
+        batch_metadatas.clear()
+        wiki_texts.clear()
+        wiki_ids.clear()
+        wiki_metadatas.clear()
 
     # Сохраняем state
     with open(state_path + '.tmp', 'w') as f:
@@ -268,7 +316,9 @@ def index_all(incremental: bool = False):
     os.replace(state_path + '.tmp', state_path)
 
     conn.close()
-    print(f"\n✅ Done! {indexed_sessions} sessions, {collection.count()} total chunks", flush=True)
+    print(f"\n✅ Done! {indexed_sessions} sessions, {sess_collection.count()} session chunks", flush=True)
+    if wiki_collection is not None:
+        print(f"   Wiki collection: {wiki_collection.count()} total chunks (incl. session chunks)", flush=True)
 
 
 def show_stats():
