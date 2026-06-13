@@ -1,0 +1,9 @@
+name: rag-wiki
+description: "RAG Wiki Search — pre_llm_call hook injects semantically relevant wiki chunks into every user message. Also provides rag_search and rag_index tools."
+version: "1.0.0"
+hooks:
+  - pre_llm_call
+tools:
+  - rag_search
+  - rag_index
+config: {}

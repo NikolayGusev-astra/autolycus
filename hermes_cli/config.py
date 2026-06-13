@@ -1789,7 +1789,7 @@ DEFAULT_CONFIG = {
     # Plugins enabled by default.
     # Standalone bundled plugins need to appear here to auto-load.
     "plugins": {
-        "enabled": ["sbl", "rtk"],
+        "enabled": ["sbl", "rtk", "rag-wiki"],
 
         # findings-to-wiki: detect structured research in session output
         # and save as wiki artifacts. Works alongside the memory provider.

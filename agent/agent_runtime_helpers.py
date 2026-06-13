@@ -53,6 +53,21 @@ def _ra():
     return run_agent
 
 
+AGENT_RUNTIME_POST_HOOK_TOOL_NAMES = frozenset(
+    {"todo", "session_search", "memory", "clarify", "delegate_task"}
+)
+
+
+def agent_runtime_owns_post_tool_hook(agent: Any, function_name: str) -> bool:
+    """Return True when an agent-level tool path emits its own post hook."""
+    if function_name in AGENT_RUNTIME_POST_HOOK_TOOL_NAMES:
+        return True
+    if getattr(agent, "_context_engine_tool_names", None) and function_name in agent._context_engine_tool_names:
+        return True
+    memory_manager = getattr(agent, "_memory_manager", None)
+    return bool(memory_manager and memory_manager.has_tool(function_name))
+
+
 
 def convert_to_trajectory_format(agent, messages: List[Dict[str, Any]], user_query: str, completed: bool) -> List[Dict[str, Any]]:
     """
@@ -1902,6 +1917,37 @@ def copy_reasoning_content_for_api(agent, source_msg: dict, api_msg: dict) -> No
     api_msg.pop("reasoning_content", None)
 
 
+def reapply_reasoning_echo_for_provider(agent, api_messages: list) -> int:
+    """Re-pad assistant turns with reasoning_content for the active provider.
+
+    ``api_messages`` is built once, before the retry loop, while the *primary*
+    provider is active.  If a mid-conversation fallback then switches to a
+    require-side provider (DeepSeek / Kimi / MiMo thinking mode), assistant
+    turns that were built when the prior provider did NOT need the echo-back go
+    out without ``reasoning_content`` and the new provider rejects them with
+    HTTP 400 ("The reasoning_content in the thinking mode must be passed back").
+
+    Calling this immediately before building the request kwargs re-applies the
+    pad against the *current* provider.  It is idempotent and a no-op unless
+    ``_needs_thinking_reasoning_pad()`` is True for the active provider, so it
+    is safe to call every iteration and covers every fallback path.
+
+    Returns the number of assistant turns that gained reasoning_content.
+    """
+    if not agent._needs_thinking_reasoning_pad():
+        return 0
+    padded = 0
+    for api_msg in api_messages:
+        if api_msg.get("role") != "assistant":
+            continue
+        if api_msg.get("reasoning_content"):
+            continue
+        copy_reasoning_content_for_api(agent, api_msg, api_msg)
+        if api_msg.get("reasoning_content"):
+            padded += 1
+    return padded
+
+
 
 def _iter_pool_sockets(client: Any):
     """Yield raw sockets reachable from an OpenAI/httpx client pool.
@@ -2221,7 +2267,9 @@ __all__ = [
     "repair_tool_call",
     "sanitize_api_messages",
     "looks_like_codex_intermediate_ack",
+    "agent_runtime_owns_post_tool_hook",
     "copy_reasoning_content_for_api",
+    "reapply_reasoning_echo_for_provider",
     "cleanup_dead_connections",
     "extract_api_error_context",
     "apply_pending_steer_to_tool_results",

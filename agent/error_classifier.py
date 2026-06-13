@@ -47,9 +47,11 @@ class FailoverReason(enum.Enum):
     # Model
     model_not_found = "model_not_found"  # 404 or invalid model — fallback to different model
     provider_policy_blocked = "provider_policy_blocked"  # Aggregator (e.g. OpenRouter) blocked the only endpoint due to account data/privacy policy
+    content_policy_blocked = "content_policy_blocked"  # Provider safety filter rejected this prompt — deterministic per-request, don't retry unchanged
 
     # Request format
     format_error = "format_error"        # 400 bad request — abort or strip + retry
+    invalid_encrypted_content = "invalid_encrypted_content"  # Responses replay blob rejected — strip replay state and retry
     multimodal_tool_content_unsupported = "multimodal_tool_content_unsupported"  # Provider rejected list-type content in tool messages (e.g. Xiaomi MiMo) — downgrade to text and retry
 
     # Provider-specific
@@ -97,12 +99,19 @@ _BILLING_PATTERNS = [
     "insufficient balance",
     "credit balance",
     "credits have been exhausted",
+    "credits exhausted",
+    "no usable credits",
+    "out of funds",
+    "run out of funds",
+    "balance_depleted",
     "top up your credits",
     "payment required",
     "billing hard limit",
     "exceeded your current quota",
     "account is deactivated",
     "plan does not include",
+    "model_not_supported_on_free_tier",
+    "not available on the free tier",
 ]
 
 # Patterns that indicate rate limiting (transient, will resolve)
@@ -932,6 +941,14 @@ def _classify_by_error_code(
             should_fallback=True,
         )
 
+    # Invalid encrypted reasoning replay blob (OpenAI Responses API)
+    if code_lower == "invalid_encrypted_content":
+        return result_fn(
+            FailoverReason.invalid_encrypted_content,
+            retryable=True,
+            should_fallback=False,
+        )
+
     if code_lower in {"context_length_exceeded", "max_tokens_exceeded"}:
         return result_fn(
             FailoverReason.context_overflow,
@@ -967,6 +984,19 @@ def _classify_by_message(
         return result_fn(
             FailoverReason.multimodal_tool_content_unsupported,
             retryable=True,
+        )
+
+    # Invalid encrypted reasoning replay blob (OpenAI Responses API).
+    # Must be checked BEFORE context_overflow because some surfaces emit
+    # messages that contain context-like phrasing.
+    if (
+        "invalid_encrypted_content" in error_msg
+        or ("encrypted content for item" in error_msg and "could not be verified" in error_msg)
+    ):
+        return result_fn(
+            FailoverReason.invalid_encrypted_content,
+            retryable=True,
+            should_fallback=False,
         )
 
     # Image-too-large patterns (from message text when no status_code)

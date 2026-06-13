@@ -99,6 +99,22 @@ def _is_gemini_openai_compat_base_url(base_url: Any) -> bool:
     return normalized.endswith("/openai")
 
 
+def _model_consumes_thought_signature(model: Any) -> bool:
+    """True when the outgoing model is a Gemini family model that requires
+    ``extra_content`` (thought_signature) to be replayed on tool calls.
+
+    Gemini 3 thinking models attach ``extra_content`` to each tool call and
+    reject subsequent requests with HTTP 400 if it is missing. Every other
+    strict OpenAI-compatible provider (Fireworks, Mistral, ...) rejects the
+    request with 400 if ``extra_content`` *is* present. So the field must be
+    kept only when the target model is itself Gemini-family, and stripped
+    otherwise — including when a non-Gemini model inherits stale Gemini
+    ``extra_content`` from earlier in a mixed-provider session.
+    """
+    m = str(model or "").lower()
+    return "gemini" in m or "gemma" in m
+
+
 class ChatCompletionsTransport(ProviderTransport):
     """Transport for api_mode='chat_completions'.
 
