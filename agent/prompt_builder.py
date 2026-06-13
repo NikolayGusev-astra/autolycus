@@ -659,6 +659,48 @@ PLATFORM_HINTS = {
     ),
 }
 
+
+# ---------------------------------------------------------------------------
+# Telegram Rich Messages — alternative platform hint when rich_messages=true
+# ---------------------------------------------------------------------------
+
+PLATFORM_HINT_TELEGRAM_RICH = (
+    "You are on a text messaging communication platform, Telegram. "
+    "You are using Telegram Rich Messages (sendRichMessage API) — your "
+    "markdown is rendered as a structured document (like Notion/Telegraph). "
+    "FULL GitHub-Flavored Markdown is supported: **bold**, *italic*, "
+    "~~strikethrough~~, ||spoiler||, `inline code`, ```code blocks```, "
+    "[links](url), and # H1 through ###### H6 headers. "
+    "Tables render NATIVELY — use standard GFM pipe tables "
+    "(| Col | Col |) with alignment markers (|:---|---:|). "
+    "Use tables freely for structured data. "
+    "Use headings (##, ###) to structure longer responses. "
+    "Use ordered (1.) and unordered (-) lists. "
+    "Use > blockquotes for quoting. "
+    "Collapsible blocks: <details><summary>Title</summary>content</details> "
+    "for hiding long technical details. "
+    "Up to 32 768 characters per message. "
+    "You can send media files natively: include MEDIA:/absolute/path/to/file. "
+    "Images (.png, .jpg, .webp) appear as photos, audio (.ogg) sends as voice "
+    "bubbles, videos (.mp4) play inline. Image URLs in markdown ![alt](url) "
+    "are sent as native photos."
+)
+
+
+def _telegram_rich_messages_enabled() -> bool:
+    """Check if telegram.rich_messages is enabled in config.yaml."""
+    try:
+        from hermes_cli.config import load_config
+        cfg = load_config()
+        tg = cfg.get("telegram", {}) if isinstance(cfg, dict) else {}
+        extras = tg.get("extra", {})
+        if isinstance(extras, dict) and extras.get("rich_messages"):
+            return True
+        return bool(tg.get("rich_messages", False))
+    except Exception:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Environment hints — execution-environment awareness for the agent.
 # Unlike PLATFORM_HINTS (which describe the messaging channel), these describe

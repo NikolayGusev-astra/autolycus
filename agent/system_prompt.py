@@ -34,12 +34,14 @@ from agent.prompt_builder import (
     MEMORY_GUIDANCE,
     OPENAI_MODEL_EXECUTION_GUIDANCE,
     PLATFORM_HINTS,
+    PLATFORM_HINT_TELEGRAM_RICH,
     SESSION_SEARCH_GUIDANCE,
     SKILLS_GUIDANCE,
     STEER_CHANNEL_NOTE,
     TASK_COMPLETION_GUIDANCE,
     TOOL_USE_ENFORCEMENT_GUIDANCE,
     TOOL_USE_ENFORCEMENT_MODELS,
+    _telegram_rich_messages_enabled,
 )
 from agent.runtime_cwd import resolve_context_cwd
 
@@ -273,7 +275,9 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         )
 
     platform_key = (agent.platform or "").lower().strip()
-    if platform_key in PLATFORM_HINTS:
+    if platform_key == "telegram" and _telegram_rich_messages_enabled():
+        stable_parts.append(PLATFORM_HINT_TELEGRAM_RICH)
+    elif platform_key in PLATFORM_HINTS:
         stable_parts.append(PLATFORM_HINTS[platform_key])
     elif platform_key:
         # Check plugin registry for platform-specific LLM guidance
