@@ -409,6 +409,9 @@ class TelegramAdapter(BasePlatformAdapter):
         self._mention_patterns = self._compile_mention_patterns()
         self._reply_to_mode: str = getattr(config, 'reply_to_mode', 'first') or 'first'
         self._disable_link_previews: bool = self._coerce_bool_extra("disable_link_previews", False)
+        # Rich Messages: use sendRichMessage API (GFM markdown, 32K limit,
+        # native tables/lists/blockquotes/details/math).  Opt-in.
+        self._rich_messages: bool = self._coerce_bool_extra("rich_messages", False)
         # Buffer rapid/album photo updates so Telegram image bursts are handled
         # as a single MessageEvent instead of self-interrupting multiple turns.
         self._media_batch_delay_seconds = float(os.getenv("HERMES_TELEGRAM_MEDIA_BATCH_DELAY_SECONDS", "0.8"))
@@ -460,14 +463,11 @@ class TelegramAdapter(BasePlatformAdapter):
         self._dm_topic_chat_ids: Set[str] = {
             str(e["chat_id"]) for e in self._dm_topics_config if "chat_id" in e
         }
-        # Document size cap. Telegram's public Bot API caps getFile at 20MB; a
-        # locally-hosted telegram-bot-api server (configured via extra.base_url)
-        # raises that to 2GB, so the presence of base_url is the opt-in.
-        self._max_doc_bytes: int = (
-            2 * 1024 * 1024 * 1024
-            if self.config.extra.get("base_url")
-            else 20 * 1024 * 1024
-        )
+        # Document size cap. Telegram Bot API allows downloading files up to 2GB.
+        # The 20MB limit applies to SEND (sendDocument/sendPhoto), not getFile.
+        # A locally-hosted telegram-bot-api server (configured via extra.base_url)
+        # keeps the same 2GB download cap.
+        self._max_doc_bytes: int = 2 * 1024 * 1024 * 1024
         # Interactive model picker state per chat
         self._model_picker_state: Dict[str, dict] = {}
         # Approval button state: message_id → session_key
@@ -1858,7 +1858,18 @@ class TelegramAdapter(BasePlatformAdapter):
         # Skip whitespace-only text to prevent Telegram 400 empty-text errors.
         if not content or not content.strip():
             return SendResult(success=True, message_id=None)
-        
+
+        # Rich messages path: sendRichMessage supports 32K chars, native
+        # tables/lists/blockquotes — no need to split into 4K chunks or
+        # escape special characters.  Falls back to send() on API error.
+        if getattr(self, "_rich_messages", False):
+            result = await self.send_rich_message(
+                chat_id, content, reply_to=reply_to, metadata=metadata,
+            )
+            if result.success:
+                return result
+            # Fallback continues below
+
         try:
             # Format and split message if needed
             formatted = self.format_message(content)
@@ -2116,6 +2127,69 @@ class TelegramAdapter(BasePlatformAdapter):
             is_connect_timeout = self._looks_like_connect_timeout(e)
             is_pool_timeout = self._looks_like_pool_timeout(e)
             return SendResult(success=False, error=str(e), retryable=(is_connect_timeout or is_pool_timeout or not is_timeout))
+
+    async def send_rich_message(
+        self,
+        chat_id: str,
+        content: str,
+        *,
+        use_html: bool = False,
+        reply_to: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> SendResult:
+        """Send a rich message via Telegram's sendRichMessage API.
+
+        Rich messages support GFM-compatible markdown, native tables,
+        lists, blockquotes, collapsible <details>, math formulas, and
+        up to 32 768 UTF-8 characters (vs 4 096 for regular messages).
+
+        Falls back to regular send() if the API call fails.
+        """
+        if not self._bot:
+            return SendResult(success=False, error="Not connected")
+
+        if not content or not content.strip():
+            return SendResult(success=True, message_id=None)
+
+        try:
+            from gateway.platforms.telegram_rich import format_rich_markdown
+
+            thread_id = self._metadata_thread_id(metadata)
+            reply_to_id = self._reply_to_message_id_for_send(
+                reply_to, metadata, reply_to_mode=self._reply_to_mode,
+            )
+            thread_kwargs = self._thread_kwargs_for_send(
+                chat_id, thread_id, metadata,
+                reply_to_message_id=reply_to_id,
+                reply_to_mode=self._reply_to_mode,
+            )
+
+            rich_message: Dict[str, Any] = {}
+            if use_html:
+                rich_message["html"] = content
+            else:
+                rich_message["markdown"] = format_rich_markdown(content)
+
+            data: Dict[str, Any] = {
+                "chat_id": int(chat_id),
+                "rich_message": rich_message,
+                **thread_kwargs,
+                **self._notification_kwargs(metadata),
+            }
+            if reply_to_id is not None:
+                data["reply_to_message_id"] = reply_to_id
+
+            result = await self._bot._post("sendRichMessage", data)
+
+            msg_id = str(result.get("message_id", "")) if isinstance(result, dict) else None
+            return SendResult(success=True, message_id=msg_id or None)
+
+        except Exception as e:
+            logger.warning(
+                "[%s] sendRichMessage failed, falling back to send(): %s",
+                self.name, e, exc_info=True,
+            )
+            return await self.send(chat_id, content, reply_to=reply_to, metadata=metadata)
 
     async def send_or_update_status(
         self,
@@ -2570,6 +2644,44 @@ class TelegramAdapter(BasePlatformAdapter):
                 return SendResult(success=False, error=str(e))
 
         return SendResult(success=False, error="draft_rejected")
+
+    async def send_rich_draft(
+        self,
+        chat_id: str,
+        draft_id: int,
+        content: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> SendResult:
+        """Stream a partial rich message via sendRichMessageDraft.
+
+        Animated preview that updates in-place when the same ``draft_id``
+        is reused.  The final message must be sent via ``send_rich_message``
+        or the regular ``send`` path to persist in the user's history.
+        """
+        if not self._bot:
+            return SendResult(success=False, error="not_connected")
+
+        try:
+            from gateway.platforms.telegram_rich import format_rich_markdown
+
+            thread_id = self._metadata_thread_id(metadata)
+
+            data: Dict[str, Any] = {
+                "chat_id": int(chat_id),
+                "draft_id": int(draft_id),
+                "rich_message": {"markdown": format_rich_markdown(content)},
+            }
+            if thread_id is not None:
+                data["message_thread_id"] = thread_id
+
+            await self._bot._post("sendRichMessageDraft", data)
+            return SendResult(success=True, message_id=None)
+        except Exception as e:
+            logger.debug(
+                "[%s] sendRichMessageDraft failed (chat=%s draft_id=%s): %s",
+                self.name, chat_id, draft_id, e,
+            )
+            return SendResult(success=False, error=str(e))
 
     async def _send_message_with_thread_fallback(self, **kwargs):
         """Send a Telegram message, retrying once without message_thread_id

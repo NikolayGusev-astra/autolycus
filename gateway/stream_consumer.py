@@ -918,12 +918,24 @@ class GatewayStreamConsumer:
             self._use_draft_streaming = False
             return False
         try:
-            result = await self.adapter.send_draft(
-                chat_id=self.chat_id,
-                draft_id=self._draft_id,
-                content=text,
-                metadata=self.metadata,
-            )
+            # Use rich draft when adapter supports it and rich mode is on
+            if (
+                hasattr(self.adapter, "send_rich_draft")
+                and getattr(self.adapter, "_rich_messages", False)
+            ):
+                result = await self.adapter.send_rich_draft(
+                    chat_id=self.chat_id,
+                    draft_id=self._draft_id,
+                    content=text,
+                    metadata=self.metadata,
+                )
+            else:
+                result = await self.adapter.send_draft(
+                    chat_id=self.chat_id,
+                    draft_id=self._draft_id,
+                    content=text,
+                    metadata=self.metadata,
+                )
         except Exception as e:
             logger.debug(
                 "send_draft raised, disabling draft transport for this run: %s", e,
