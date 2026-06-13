@@ -441,14 +441,11 @@ class TelegramAdapter(BasePlatformAdapter):
         self._dm_topic_chat_ids: Set[str] = {
             str(e["chat_id"]) for e in self._dm_topics_config if "chat_id" in e
         }
-        # Document size cap. Telegram's public Bot API caps getFile at 20MB; a
-        # locally-hosted telegram-bot-api server (configured via extra.base_url)
-        # raises that to 2GB, so the presence of base_url is the opt-in.
-        self._max_doc_bytes: int = (
-            2 * 1024 * 1024 * 1024
-            if self.config.extra.get("base_url")
-            else 20 * 1024 * 1024
-        )
+        # Document size cap. Telegram Bot API allows downloading files up to 2GB.
+        # The 20MB limit applies to SEND (sendDocument/sendPhoto), not getFile.
+        # A locally-hosted telegram-bot-api server (configured via extra.base_url)
+        # keeps the same 2GB download cap.
+        self._max_doc_bytes: int = 2 * 1024 * 1024 * 1024
         # Interactive model picker state per chat
         self._model_picker_state: Dict[str, dict] = {}
         # Approval button state: message_id → session_key
