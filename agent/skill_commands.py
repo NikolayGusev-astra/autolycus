@@ -180,21 +180,6 @@ def _build_skill_message(
         timeout = int(skills_cfg.get("inline_shell_timeout", 10) or 10)
         content = _expand_inline_shell(content, skill_dir, timeout)
 
-    # ── Supply chain scan: sanitize skill content for injection ──
-    try:
-        from core.supply_chain import scan_skill_content, infer_skill_source
-
-        src = infer_skill_source(skill_dir)
-        _sc_result = scan_skill_content(content, source_type=src)
-        if _sc_result.blocked:
-            content = "[SKILL CONTENT BLOCKED: content safety scan failed]"
-        elif _sc_result.text != content:
-            content = _sc_result.text  # sanitized version
-    except ImportError:
-        pass  # core.supply_chain not available — skip
-    except Exception:
-        logger.exception("Supply chain skill scan error")
-
     parts = [activation_note, "", content.strip()]
 
     # ── Inject the absolute skill directory so the agent can reference
@@ -285,7 +270,7 @@ def scan_skill_commands() -> Dict[str, Dict[str, Any]]:
     _skill_commands_platform = _resolve_skill_commands_platform()
     _skill_commands = {}
     try:
-        from tools.skills_tool import SKILLS_DIR, _parse_frontmatter, skill_matches_platform, _get_disabled_skill_names
+        from tools.skills_tool import SKILLS_DIR, _parse_frontmatter, skill_matches_platform, skill_matches_environment, _get_disabled_skill_names
         from agent.skill_utils import get_external_skills_dirs, iter_skill_index_files
         disabled = _get_disabled_skill_names()
         seen_names: set = set()
@@ -305,6 +290,10 @@ def scan_skill_commands() -> Dict[str, Dict[str, Any]]:
                     frontmatter, body = _parse_frontmatter(content)
                     # Skip skills incompatible with the current OS platform
                     if not skill_matches_platform(frontmatter):
+                        continue
+                    # Skip skills not relevant to the current runtime env
+                    # (kanban/docker/s6). Offer-time only; explicit load bypasses.
+                    if not skill_matches_environment(frontmatter):
                         continue
                     name = frontmatter.get('name', skill_md.parent.name)
                     if name in seen_names:

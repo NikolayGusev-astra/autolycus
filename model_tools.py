@@ -25,7 +25,6 @@ import json
 import re
 import asyncio
 import logging
-import re
 import threading
 import time
 from typing import Dict, Any, List, Optional, Tuple
@@ -254,6 +253,14 @@ _LEGACY_TOOLSET_MAP = {
 # daemon start/stop, env var changes, etc.) on a 30 s horizon.
 _tool_defs_cache: Dict[tuple, List[Dict[str, Any]]] = {}
 
+# Hard cap on memoized get_tool_definitions() results. A long-lived Gateway
+# process sees many distinct toolset/config fingerprints over its lifetime
+# (per-session toolset sets, config edits, kanban-task toggles); without a
+# bound the cache grows unboundedly. 8 comfortably covers the warm working
+# set (the handful of distinct platform/toolset combos a gateway actually
+# serves) while keeping the cap small. (#19251)
+_TOOL_DEFS_CACHE_MAX = 8
+
 
 def _clear_tool_defs_cache() -> None:
     """Drop memoized get_tool_definitions() results. Called when dynamic
@@ -263,8 +270,8 @@ def _clear_tool_defs_cache() -> None:
 
 
 def get_tool_definitions(
-    enabled_toolsets: List[str] = None,
-    disabled_toolsets: List[str] = None,
+    enabled_toolsets: Optional[List[str]] = None,
+    disabled_toolsets: Optional[List[str]] = None,
     quiet_mode: bool = False,
     skip_tool_search_assembly: bool = False,
 ) -> List[Dict[str, Any]]:
@@ -277,6 +284,11 @@ def get_tool_definitions(
         enabled_toolsets: Only include tools from these toolsets.
         disabled_toolsets: Exclude tools from these toolsets (if enabled_toolsets is None).
         quiet_mode: Suppress status prints.
+        skip_tool_search_assembly: When True, return the pre-assembly tool list
+            (raw schemas for every enabled tool). Used internally by the
+            tool_search / tool_describe bridge handlers so they can read the
+            real catalog, not the already-collapsed one. Public callers should
+            leave this False.
 
     Returns:
         Filtered list of OpenAI-format tool definitions.
@@ -303,6 +315,7 @@ def get_tool_definitions(
             registry._generation,
             cfg_fp,
             bool(os.environ.get("HERMES_KANBAN_TASK")),
+            bool(skip_tool_search_assembly),
         )
         cached = _tool_defs_cache.get(cache_key)
         if cached is not None:
@@ -314,7 +327,8 @@ def get_tool_definitions(
             # schemas are treated as read-only by all known callers.
             return list(cached)
 
-    result = _compute_tool_definitions(enabled_toolsets, disabled_toolsets, quiet_mode, skip_tool_search_assembly)
+    result = _compute_tool_definitions(enabled_toolsets, disabled_toolsets, quiet_mode,
+                                       skip_tool_search_assembly=skip_tool_search_assembly)
     if quiet_mode:
         # Cache the freshly-computed list, but hand callers a shallow copy so
         # downstream mutations (e.g. run_agent appending memory/LCM tool
@@ -323,14 +337,19 @@ def get_tool_definitions(
         # agent inits and providers that enforce unique tool names
         # (DeepSeek, Xiaomi MiMo, Moonshot Kimi) reject the request with
         # HTTP 400. Mirrors the cache-hit path above. (issue #17335)
+        # Bound the cache with LRU eviction so a long-lived Gateway process
+        # doesn't accumulate entries unboundedly across the many distinct
+        # toolset/config fingerprints it sees over its lifetime (#19251).
+        if len(_tool_defs_cache) >= _TOOL_DEFS_CACHE_MAX:
+            _tool_defs_cache.pop(next(iter(_tool_defs_cache)))  # evict oldest
         _tool_defs_cache[cache_key] = result
         return list(result)
     return result
 
 
 def _compute_tool_definitions(
-    enabled_toolsets: List[str] = None,
-    disabled_toolsets: List[str] = None,
+    enabled_toolsets: Optional[List[str]] = None,
+    disabled_toolsets: Optional[List[str]] = None,
     quiet_mode: bool = False,
     skip_tool_search_assembly: bool = False,
 ) -> List[Dict[str, Any]]:
@@ -484,7 +503,59 @@ def _compute_tool_definitions(
     except Exception as e:  # pragma: no cover — defensive
         logger.warning("Schema sanitization skipped: %s", e)
 
+    # ── Tool Search (progressive disclosure) ────────────────────────────
+    # Conditionally replace MCP + plugin (non-core) tools with three bridge
+    # tools (tool_search / tool_describe / tool_call) when the deferrable
+    # surface exceeds the configured threshold (default 10% of context
+    # window). Core Hermes tools (toolsets._HERMES_CORE_TOOLS) are NEVER
+    # deferred. See tools/tool_search.py for full design notes.
+    #
+    # This is deliberately the last step before returning — sanitization
+    # has already normalized schemas, and the assembly is idempotent in
+    # case some caller invokes get_tool_definitions twice.
+    try:
+        from tools.tool_search import assemble_tool_defs, load_config as _load_ts_config
+        ts_cfg = _load_ts_config()
+        if not skip_tool_search_assembly and ts_cfg.enabled != "off":
+            context_length = _resolve_active_context_length()
+            assembly = assemble_tool_defs(
+                filtered_tools,
+                context_length=context_length,
+                config=ts_cfg,
+            )
+            if assembly.activated and not quiet_mode:
+                print(
+                    f"🔎 Tool Search: {assembly.deferred_count} MCP/plugin tools deferred "
+                    f"(~{assembly.deferred_tokens} tokens) behind tool_search/describe/call. "
+                    f"Threshold ~{assembly.threshold_tokens} tokens."
+                )
+            filtered_tools = assembly.tool_defs
+    except Exception as e:  # pragma: no cover — never break tool loading
+        logger.warning("Tool search assembly skipped: %s", e)
+
     return filtered_tools
+
+
+def _resolve_active_context_length() -> int:
+    """Look up the active model's context length for the tool-search gate.
+
+    Returns 0 when the model can't be resolved — ``should_activate`` falls
+    back to a fixed token cutoff in that case.
+    """
+    try:
+        from hermes_cli.config import load_config as _load
+        cfg = _load() or {}
+        model_cfg = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}
+        if not isinstance(model_cfg, dict):
+            model_cfg = {}
+        model_id = (model_cfg.get("model") or model_cfg.get("default") or "").strip()
+        if not model_id:
+            return 0
+        from agent.model_metadata import get_model_context_length
+        return int(get_model_context_length(model_id) or 0)
+    except Exception as e:
+        logger.debug("Could not resolve active context length: %s", e)
+        return 0
 
 
 # =============================================================================
@@ -497,176 +568,6 @@ def _compute_tool_definitions(
 # so if something slips through, the LLM sees a sensible message.
 _AGENT_LOOP_TOOLS = {"todo", "memory", "session_search", "delegate_task"}
 _READ_SEARCH_TOOLS = {"read_file", "search_files"}
-
-# ── Path fields that may carry markdown links ──────────────────────
-_PATH_FIELDS = {"path", "file_path", "filepath", "source", "destination", "target", "old_string"}
-
-
-# =============================================================================
-# Validate-then-repair layer
-# =============================================================================
-
-
-def _repair_null_to_omit(
-    args: Dict[str, Any], schema: Optional[Dict[str, Any]]
-) -> Tuple[Dict[str, Any], List[Dict[str, str]]]:
-    """Remove ``None`` values from optional fields.
-
-    Models frequently pass ``{"key": null}`` instead of omitting the key.
-    Required fields keep their ``None`` value (the tool will reject them
-    with a clear error).  Optional ``None`` fields are silently dropped.
-    """
-    repairs: List[Dict[str, str]] = []
-    required = set(schema.get("required", [])) if schema else set()
-    for key in list(args.keys()):
-        if args[key] is None and key not in required:
-            del args[key]
-            repairs.append({"field": key, "issue": "null_on_optional", "action": "omitted"})
-    return args, repairs
-
-
-def _repair_string_to_array(
-    args: Dict[str, Any], schema: Optional[Dict[str, Any]]
-) -> Tuple[Dict[str, Any], List[Dict[str, str]]]:
-    """Repair a JSON-encoded string that should be an array.
-
-    Two attempts:
-    1. Try ``json.loads(value)`` — catches ``"["a","b"]"``.
-    2. Wrap the bare string in a single-element array.
-    """
-    repairs: List[Dict[str, str]] = []
-    props = (schema or {}).get("properties", {})
-    for key, value in args.items():
-        prop = props.get(key, {})
-        if prop.get("type") == "array" and isinstance(value, str):
-            try:
-                parsed = json.loads(value)
-                if isinstance(parsed, list):
-                    args[key] = parsed
-                    repairs.append({"field": key, "issue": "string_as_array", "action": "json_parse"})
-                    continue
-            except (json.JSONDecodeError, TypeError):
-                pass
-            args[key] = [value]
-            repairs.append({"field": key, "issue": "string_as_array", "action": "wrapped"})
-    return args, repairs
-
-
-def _repair_bare_to_array(
-    args: Dict[str, Any], schema: Optional[Dict[str, Any]]
-) -> Tuple[Dict[str, Any], List[Dict[str, str]]]:
-    """Wrap a single non-list value in a single-element array.
-
-    Catches the common ``"foo"`` → ``["foo"]`` mistake when the schema
-    declares ``"type": "array"``.
-    """
-    repairs: List[Dict[str, str]] = []
-    props = (schema or {}).get("properties", {})
-    for key, value in args.items():
-        prop = props.get(key, {})
-        if prop.get("type") == "array" and not isinstance(value, (list, tuple)):
-            args[key] = [value]
-            repairs.append({"field": key, "issue": "bare_as_array", "action": "wrapped"})
-    return args, repairs
-
-
-def _repair_markdown_path(
-    args: Dict[str, Any], schema: Optional[Dict[str, Any]]
-) -> Tuple[Dict[str, Any], List[Dict[str, str]]]:
-    """Strip markdown link syntax from path values.
-
-    Models sometimes output ``"[notes.md](http://notes.md)"`` instead of
-    ``"notes.md"``.  The regex preserves valid markdown links where the
-    text differs from the URL.
-    """
-    # Matches ``[text](url)`` — when text == url, use the text part;
-    # otherwise keep the text (likely a genuine description → link pairing).
-    _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
-    repairs: List[Dict[str, str]] = []
-    for key in args:
-        if key not in _PATH_FIELDS or not isinstance(args[key], str):
-            continue
-        cleaned = _MD_LINK_RE.sub(lambda m: m.group(1) if m.group(1) == m.group(2) else m.group(0), args[key])
-        if cleaned != args[key]:
-            args[key] = cleaned
-            repairs.append({"field": key, "issue": "markdown_link", "action": "cleaned"})
-    return args, repairs
-
-
-def _repair_relational(
-    args: Dict[str, Any], schema: Optional[Dict[str, Any]]
-) -> Tuple[Dict[str, Any], List[Dict[str, str]]]:
-    """Fix relational invariants like ``offset`` without ``limit``.
-
-    Tools may declare ``offset`` and ``limit`` as separate optional
-    fields, but they form a relational pair — sending one without the
-    other can produce confusing results.
-    """
-    repairs: List[Dict[str, str]] = []
-    if "offset" in args and "limit" not in args:
-        args["limit"] = 500
-        repairs.append({"field": "limit", "issue": "missing_with_offset", "action": "default_500"})
-    if "limit" in args and "offset" not in args:
-        args["offset"] = 1
-        repairs.append({"field": "offset", "issue": "missing_with_limit", "action": "default_1"})
-    return args, repairs
-
-
-def validate_tool_args(
-    tool_name: str, args: Dict[str, Any]
-) -> Tuple[Dict[str, Any], List[Dict[str, str]]]:
-    """Validate-then-repair: apply semantic repairs to tool arguments.
-
-    Unlike the existing ``_repair_tool_call_arguments`` in ``run_agent.py``
-    (which focuses on JSON-level syntax — trailing commas, unclosed
-    brackets, control characters), this layer addresses **semantic**
-    issues:
-
-    * ``null`` on optional fields → omit the field
-    * JSON-encoded string where array expected → parse or wrap
-    * Bare scalar where array expected → wrap in single-element array
-    * Markdown links in path fields → strip link syntax
-    * Relational invariants (offset/limit, limit/offset) → set defaults
-
-    Each repair is logged at INFO level for telemetry, and a note is
-    prepended to the tool result so the model learns to avoid the
-    malformation in subsequent calls.
-
-    Returns ``(args, repairs)`` where *repairs* is empty when no changes
-    were made.
-    """
-    if not args or not isinstance(args, dict):
-        return args, []
-
-    schema = registry.get_schema(tool_name)
-    params_schema = (schema or {}).get("parameters", {})
-    if not params_schema:
-        return args, []
-
-    repairs: List[Dict[str, str]] = []
-
-    # Order matters: null→omit must run before type-based repairs
-    # to avoid wrapping ``None`` in an array.
-    args, r = _repair_null_to_omit(args, params_schema)
-    repairs.extend(r)
-
-    args, r = _repair_string_to_array(args, params_schema)
-    repairs.extend(r)
-
-    args, r = _repair_bare_to_array(args, params_schema)
-    repairs.extend(r)
-
-    args, r = _repair_markdown_path(args, params_schema)
-    repairs.extend(r)
-
-    args, r = _repair_relational(args, params_schema)
-    repairs.extend(r)
-
-    if repairs:
-        note = "; ".join(f"{r['field']}: {r['issue']} -> {r['action']}" for r in repairs)
-        logger.info("validate-then-repair for %s [%s]: %s", tool_name, len(repairs), note)
-
-    return args, repairs
 
 
 # =========================================================================
@@ -911,6 +812,67 @@ def _coerce_boolean(value: str):
     return value
 
 
+def _tool_result_observer_fields(result: Any) -> tuple[str, Optional[str], Optional[str]]:
+    try:
+        parsed_result = json.loads(result) if isinstance(result, str) else result
+        if isinstance(parsed_result, dict) and parsed_result.get("error"):
+            return "error", "tool_error", str(parsed_result.get("error"))
+    except Exception:
+        pass
+    return "ok", None, None
+
+
+def _emit_post_tool_call_hook(
+    *,
+    function_name: str,
+    function_args: Dict[str, Any],
+    result: Any,
+    task_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    tool_call_id: Optional[str] = None,
+    turn_id: Optional[str] = None,
+    api_request_id: Optional[str] = None,
+    duration_ms: int = 0,
+    status: Optional[str] = None,
+    error_type: Optional[str] = None,
+    error_message: Optional[str] = None,
+    middleware_trace: Optional[List[Dict[str, Any]]] = None,
+) -> None:
+    """Emit the ``post_tool_call`` observer hook.
+
+    No-ops cheaply when no plugin has registered for ``post_tool_call`` —
+    the ``has_hook`` gate skips both the result-field derivation and the
+    payload dispatch so the no-listener path costs one dict lookup.  When
+    ``status`` is not supplied, the ok/error fields are derived from the
+    result *after* the gate (parsing the result is only worth it when a
+    listener will actually consume it).
+    """
+    try:
+        from hermes_cli.plugins import has_hook, invoke_hook
+        if not has_hook("post_tool_call"):
+            return
+        if status is None:
+            status, error_type, error_message = _tool_result_observer_fields(result)
+        invoke_hook(
+            "post_tool_call",
+            tool_name=function_name,
+            args=function_args,
+            result=result,
+            task_id=task_id or "",
+            session_id=session_id or "",
+            tool_call_id=tool_call_id or "",
+            turn_id=turn_id or "",
+            api_request_id=api_request_id or "",
+            duration_ms=duration_ms,
+            status=status,
+            error_type=error_type,
+            error_message=error_message,
+            middleware_trace=list(middleware_trace or []),
+        )
+    except Exception as _hook_err:
+        logger.debug("post_tool_call hook error: %s", _hook_err)
+
+
 def handle_function_call(
     function_name: str,
     function_args: Dict[str, Any],
@@ -939,25 +901,118 @@ def handle_function_call(
                        execute_code uses this list to determine which sandbox
                        tools to generate.  Falls back to the process-global
                        ``_last_resolved_tool_names`` for backward compat.
+        enabled_toolsets: The session's enabled toolsets.  Used to scope the
+                       Tool Search bridge catalog so ``tool_search`` /
+                       ``tool_describe`` / ``tool_call`` only see and invoke
+                       tools the session was actually granted.  ``None`` means
+                       "no restriction" (the caller scopes to every toolset),
+                       matching ``get_tool_definitions`` semantics.
+        disabled_toolsets: The session's disabled toolsets, applied as a
+                       subtraction when scoping the bridge catalog.
 
     Returns:
         Function result as a JSON string.
     """
     # Coerce string arguments to their schema-declared types (e.g. "42"→42)
     function_args = coerce_tool_args(function_name, function_args)
+    if not isinstance(function_args, dict):
+        function_args = {}
+    _tool_middleware_trace = list(tool_request_middleware_trace or [])
 
-    # ── Autolycus: heavy tool JIT import ──
-    # If the tool's module was unloaded, re-import it so dispatch works.
-    module_name = _HEAVY_TOOLS.get(function_name)
-    if module_name:
-        mod_key = module_name.replace("/", ".").replace(".py", "")
-        if mod_key not in sys.modules:
-            import importlib.util
-            spec = importlib.util.spec_from_file_location(mod_key, module_name)
-            if spec and spec.loader:
-                mod = importlib.util.module_from_spec(spec)
-                sys.modules[mod_key] = mod
-                spec.loader.exec_module(mod)
+    # ── Tool Search bridge dispatch ──────────────────────────────────
+    # tool_search and tool_describe are pure catalog reads — handle them
+    # inline. tool_call is unwrapped to the underlying tool so that every
+    # downstream hook (pre/post, edit approval, guardrails) sees the real
+    # tool name, not the bridge.
+    _ts_mod = None
+    try:
+        from tools import tool_search as _ts_mod  # noqa: F401
+    except Exception:
+        _ts_mod = None
+
+    if _ts_mod is not None and _ts_mod.is_bridge_tool(function_name):
+        try:
+            # Use skip_tool_search_assembly=True so we see the real catalog,
+            # not the already-collapsed bridge-only list (the bridge would
+            # otherwise be searching only itself).
+            #
+            # Scope the catalog to the session's toolsets so the bridge can
+            # only surface and invoke tools the session was actually granted.
+            # Without this, a restricted-toolset session (subagent, kanban
+            # worker, curated gateway session) would see and be able to call
+            # the entire process registry via the bridge. Passing the same
+            # enabled/disabled toolsets the session was assembled with keeps
+            # the deferred catalog identical to the deferrable subset of the
+            # session's own tool list, and avoids polluting the process-global
+            # _last_resolved_tool_names with out-of-scope tools.
+            current_defs = get_tool_definitions(
+                enabled_toolsets=enabled_toolsets,
+                disabled_toolsets=disabled_toolsets,
+                quiet_mode=True, skip_tool_search_assembly=True,
+            ) or []
+        except Exception:
+            current_defs = []
+        if function_name == _ts_mod.TOOL_SEARCH_NAME:
+            return _ts_mod.dispatch_tool_search(function_args or {},
+                                                current_tool_defs=current_defs)
+        if function_name == _ts_mod.TOOL_DESCRIBE_NAME:
+            return _ts_mod.dispatch_tool_describe(function_args or {},
+                                                  current_tool_defs=current_defs)
+        if function_name == _ts_mod.TOOL_CALL_NAME:
+            underlying_name, underlying_args, err = _ts_mod.resolve_underlying_call(function_args or {})
+            if err or not underlying_name:
+                return json.dumps({"error": err or "tool_call could not be resolved"},
+                                  ensure_ascii=False)
+            # Defense in depth: the underlying tool MUST be in the session's
+            # scoped deferrable catalog. resolve_underlying_call() only checks
+            # that the name is deferrable in the global registry; this gate
+            # additionally rejects any tool the session was not granted, so a
+            # restricted session can never invoke an out-of-scope tool through
+            # the bridge even if the catalog scoping above regressed.
+            _scoped_deferrable = _ts_mod.scoped_deferrable_names(current_defs)
+            if underlying_name not in _scoped_deferrable:
+                return json.dumps({
+                    "error": (
+                        f"'{underlying_name}' is not available in this session. "
+                        "Use tool_search to find tools you can call."
+                    ),
+                }, ensure_ascii=False)
+            # Recurse with the underlying tool. All hooks fire against the
+            # real tool name. The bridge is invisible to hooks by design.
+            return handle_function_call(
+                function_name=underlying_name,
+                function_args=underlying_args,
+                task_id=task_id,
+                tool_call_id=tool_call_id,
+                session_id=session_id,
+                user_task=user_task,
+                enabled_tools=enabled_tools,
+                skip_pre_tool_call_hook=skip_pre_tool_call_hook,
+                skip_tool_request_middleware=skip_tool_request_middleware,
+                tool_request_middleware_trace=list(_tool_middleware_trace),
+                enabled_toolsets=enabled_toolsets,
+                disabled_toolsets=disabled_toolsets,
+            )
+
+    _tool_original_args = dict(function_args)
+    if not skip_tool_request_middleware:
+        try:
+            from hermes_cli.middleware import apply_tool_request_middleware
+
+            _tool_request_mw = apply_tool_request_middleware(
+                function_name,
+                function_args,
+                task_id=task_id or "",
+                session_id=session_id or "",
+                tool_call_id=tool_call_id or "",
+                turn_id=turn_id or "",
+                api_request_id=api_request_id or "",
+            )
+            function_args = _tool_request_mw.payload
+            _tool_original_args = _tool_request_mw.original_payload
+            _tool_middleware_trace = _tool_request_mw.trace
+        except Exception as _mw_err:
+            logger.debug("tool_request middleware error: %s", _mw_err)
 
     try:
         if function_name in _AGENT_LOOP_TOOLS:
@@ -983,12 +1038,30 @@ def handle_function_call(
                     task_id=task_id or "",
                     session_id=session_id or "",
                     tool_call_id=tool_call_id or "",
+                    turn_id=turn_id or "",
+                    api_request_id=api_request_id or "",
+                    middleware_trace=list(_tool_middleware_trace),
                 )
             except Exception as _hook_err:
                 logger.debug("pre_tool_call hook error: %s", _hook_err)
 
             if block_message is not None:
-                return json.dumps({"error": block_message}, ensure_ascii=False)
+                result = json.dumps({"error": block_message}, ensure_ascii=False)
+                _emit_post_tool_call_hook(
+                    function_name=function_name,
+                    function_args=function_args,
+                    result=result,
+                    task_id=task_id,
+                    session_id=session_id,
+                    tool_call_id=tool_call_id,
+                    turn_id=turn_id,
+                    api_request_id=api_request_id,
+                    status="blocked",
+                    error_type="plugin_block",
+                    error_message=block_message,
+                    middleware_trace=list(_tool_middleware_trace),
+                )
+                return result
 
         # ACP/Zed edit approval runs before any file mutation.  The requester
         # is bound via ContextVar only for ACP sessions, so CLI/gateway paths
@@ -1021,53 +1094,71 @@ def handle_function_call(
         # to wrap every tool manually.  We use monotonic() so the value is
         # unaffected by wall-clock adjustments during the call.
         _dispatch_start = time.monotonic()
-
-        # ── Validate-then-repair: fix semantic tool argument issues ────
-        # Catches null-on-optional, string-as-array, bare-as-array,
-        # markdown-in-path, and relational-invariant violations.
-        # Repairs are logged and prepended to the tool result so the model
-        # can learn to avoid them in subsequent calls.
-        repaired_args, repair_log = validate_tool_args(function_name, function_args)
-        has_repairs = bool(repair_log)
-        if function_name == "execute_code":
-            # Prefer the caller-provided list so subagents can't overwrite
-            # the parent's tool set via the process-global.
-            sandbox_enabled = enabled_tools if enabled_tools is not None else _last_resolved_tool_names
-            result = registry.dispatch(
-                function_name, repaired_args,
-                task_id=task_id,
-                enabled_tools=sandbox_enabled,
-            )
-        else:
-            result = registry.dispatch(
-                function_name, repaired_args,
-                task_id=task_id,
-                user_task=user_task,
-            )
-        duration_ms = int((time.monotonic() - _dispatch_start) * 1000)
-
-        # ── Autolycus P5: return freed heap pages to OS ──
-        _maybe_trim_memory()
-
-        # Prepend repair notes so the model sees what was fixed.
-        if has_repairs:
-            note = " | ".join(f"{r['field']}: {r['issue']} -> {r['action']}" for r in repair_log)
-            result = f"[validate-then-repair: {note}]\n{result}"
-
+        _approval_tokens = None
         try:
-            from hermes_cli.plugins import invoke_hook
-            invoke_hook(
-                "post_tool_call",
-                tool_name=function_name,
-                args=function_args,
-                result=result,
+            from tools.approval import (
+                reset_current_observability_context,
+                set_current_observability_context,
+            )
+            _approval_tokens = set_current_observability_context(
+                turn_id=turn_id or "",
+                tool_call_id=tool_call_id or "",
+            )
+        except Exception:
+            reset_current_observability_context = None
+        try:
+            if function_name == "execute_code":
+                # Prefer the caller-provided list so subagents can't overwrite
+                # the parent's tool set via the process-global.
+                sandbox_enabled = enabled_tools if enabled_tools is not None else _last_resolved_tool_names
+                def _dispatch(next_args: Dict[str, Any]) -> Any:
+                    return registry.dispatch(
+                        function_name, next_args,
+                        task_id=task_id,
+                        session_id=session_id,
+                        enabled_tools=sandbox_enabled,
+                    )
+            else:
+                def _dispatch(next_args: Dict[str, Any]) -> Any:
+                    return registry.dispatch(
+                        function_name, next_args,
+                        task_id=task_id,
+                        session_id=session_id,
+                        user_task=user_task,
+                    )
+            from hermes_cli.middleware import run_tool_execution_middleware
+
+            result = run_tool_execution_middleware(
+                function_name,
+                function_args,
+                _dispatch,
+                original_args=_tool_original_args,
                 task_id=task_id or "",
                 session_id=session_id or "",
                 tool_call_id=tool_call_id or "",
-                duration_ms=duration_ms,
+                turn_id=turn_id or "",
+                api_request_id=api_request_id or "",
             )
-        except Exception as _hook_err:
-            logger.debug("post_tool_call hook error: %s", _hook_err)
+        finally:
+            if _approval_tokens is not None and reset_current_observability_context is not None:
+                try:
+                    reset_current_observability_context(_approval_tokens)
+                except Exception:
+                    pass
+        duration_ms = int((time.monotonic() - _dispatch_start) * 1000)
+
+        _emit_post_tool_call_hook(
+            function_name=function_name,
+            function_args=function_args,
+            result=result,
+            task_id=task_id,
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            turn_id=turn_id,
+            api_request_id=api_request_id,
+            duration_ms=duration_ms,
+            middleware_trace=list(_tool_middleware_trace),
+        )
 
         # Generic tool-result canonicalization seam: plugins receive the
         # final result string (JSON, usually) and may replace it by
@@ -1075,22 +1166,31 @@ def handle_function_call(
         # post_tool_call (which stays observational) and before the result
         # is appended back into conversation context. Fail-open; the first
         # valid string return wins; non-string returns are ignored.
+        # Gated on has_hook so the no-listener path skips both the result
+        # field derivation and the payload dispatch.
         try:
-            from hermes_cli.plugins import invoke_hook
-            hook_results = invoke_hook(
-                "transform_tool_result",
-                tool_name=function_name,
-                args=function_args,
-                result=result,
-                task_id=task_id or "",
-                session_id=session_id or "",
-                tool_call_id=tool_call_id or "",
-                duration_ms=duration_ms,
-            )
-            for hook_result in hook_results:
-                if isinstance(hook_result, str):
-                    result = hook_result
-                    break
+            from hermes_cli.plugins import has_hook, invoke_hook
+            if has_hook("transform_tool_result"):
+                status, error_type, error_message = _tool_result_observer_fields(result)
+                hook_results = invoke_hook(
+                    "transform_tool_result",
+                    tool_name=function_name,
+                    args=function_args,
+                    result=result,
+                    task_id=task_id or "",
+                    session_id=session_id or "",
+                    tool_call_id=tool_call_id or "",
+                    turn_id=turn_id or "",
+                    api_request_id=api_request_id or "",
+                    duration_ms=duration_ms,
+                    status=status,
+                    error_type=error_type,
+                    error_message=error_message,
+                )
+                for hook_result in hook_results:
+                    if isinstance(hook_result, str):
+                        result = hook_result
+                        break
         except Exception as _hook_err:
             logger.debug("transform_tool_result hook error: %s", _hook_err)
 
@@ -1102,116 +1202,9 @@ def handle_function_call(
         return json.dumps({"error": _sanitize_tool_error(error_msg)}, ensure_ascii=False)
 
 
-# ── Autolycus: cold import / unload for heavy tools ──────────────────
-import os as _os
-_HERMES_ROOT = _os.path.dirname(_os.path.abspath(__file__))
-_HEAVY_TOOLS: Dict[str, str] = {
-    "browser_tool": _os.path.join(_HERMES_ROOT, "tools", "browser_tool.py"),
-    "browser_supervisor": _os.path.join(_HERMES_ROOT, "tools", "browser_supervisor.py"),
-    "voice_mode": _os.path.join(_HERMES_ROOT, "tools", "voice_mode.py"),
-    "tts": _os.path.join(_HERMES_ROOT, "tools", "tts_tool.py"),
-    "rl_training": _os.path.join(_HERMES_ROOT, "tools", "rl_training_tool.py"),
-    "computer_use": _os.path.join(_HERMES_ROOT, "tools", "computer_use", "cua_backend.py"),
-    "spotify": _os.path.join(_HERMES_ROOT, "tools", "spotify_tool.py"),
-}
-
-# Track which heavy tools have been loaded this session
-_heavy_loaded: set = set()
-
-# Unload heavy tools right after discovery — they'll be cold-imported
-# on first use and stay loaded for the remainder of the session.
-def _unload_heavy_tools() -> None:
-    """Remove heavy tool modules from sys.modules after discovery."""
-    import sys
-    # Список префиксов модулей, которые нужно выгрузить
-    unload_prefixes = [
-        "tools.browser_tool", "tools.browser_supervisor",
-        "tools.browser_cdp_tool", "tools.browser_dialog_tool",
-        "tools.browser_providers", "tools.browser_camofox",
-        "tools.voice_mode", "tools.tts_tool",
-        "tools.rl_training_tool", "tools.computer_use",
-        "tools.spotify_tool",
-    ]
-    for mod_name in list(sys.modules.keys()):
-        for prefix in unload_prefixes:
-            if mod_name.startswith(prefix):
-                sys.modules.pop(mod_name, None)
-                break
-
-# Also unload transient dependencies (playwright, selenium, etc.)
-_HEAVY_TRANSIENTS = ["playwright", "selenium", "pydub", "sounddevice", "spotipy"]
-
-_unload_heavy_tools()
-
-
-# ── Autolycus P5: return freed heap pages to OS ───────────────────
-def _maybe_trim_memory() -> None:
-    """Call malloc_trim(0) on Linux to reduce RSS."""
-    try:
-        import ctypes
-        libc = ctypes.CDLL("libc.so.6")
-        libc.malloc_trim(0)
-    except Exception:
-        pass
-
-
-def _cold_import_and_run(module_path: str, func_name: str, args: dict) -> str:
-    """JIT-import a module, call a function, unload it.
-    
-    Uses importlib to load a module from file path without registering
-    it permanently in sys.modules. After execution, removes the module
-    and runs garbage collection to free memory.
-    """
-    import importlib.util
-    name = f"_cold_{Path(module_path).stem}"
-    
-    # Check if already loaded in this session — if yes, skip unload
-    # (tool may be called multiple times in one session)
-    if name in sys.modules:
-        mod = sys.modules[name]
-        handler = getattr(mod, func_name, None)
-        if handler:
-            return json.dumps(handler(args))
-    
-    # Cold import
-    spec = importlib.util.spec_from_file_location(name, module_path)
-    if spec is None or spec.loader is None:
-        return json.dumps({"error": f"Could not load heavy tool: {module_path}"})
-    mod = importlib.util.module_from_spec(spec)
-    old_modules = set(sys.modules.keys())
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    
-    handler = getattr(mod, func_name, None)
-    if handler is None:
-        sys.modules.pop(name, None)
-        return json.dumps({"error": f"Function {func_name} not found in {module_path}"})
-    
-    try:
-        result = json.dumps(handler(args))
-    except Exception as e:
-        result = json.dumps({"error": f"Heavy tool error: {e}"})
-    
-    # Unload: remove module and any transient dependencies
-    for mod_name in list(sys.modules.keys()):
-        if mod_name not in old_modules and mod_name != name:
-            # Keep the main module cached for this session
-            pass
-    _heavy_loaded.add(name)
-    
-    # Full GC to release memory
-    import gc
-    gc.collect()
-    if hasattr(gc, 'garbage'):
-        del gc.garbage[:]
-    
-    return result
-
-
 # =============================================================================
 # Backward-compat wrapper functions
 # =============================================================================
-
 
 def get_all_tool_names() -> List[str]:
     """Return all registered tool names."""

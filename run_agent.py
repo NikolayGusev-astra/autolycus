@@ -33,26 +33,19 @@ except ModuleNotFoundError:
 
 import asyncio
 import base64
-import concurrent.futures
-import contextvars
 import copy
 import hashlib
 import json
 import logging
 logger = logging.getLogger(__name__)
 import os
-import random
 import re
-import ssl
 import sys
 import tempfile
 import time
 import threading
-from types import SimpleNamespace
-import urllib.request
 import uuid
 from typing import List, Dict, Any, Optional
-from urllib.parse import urlparse, parse_qs, urlunparse
 # NOTE: `from openai import OpenAI` is deliberately NOT at module top — the
 # SDK pulls ~240 ms of imports. We expose `OpenAI` as a thin proxy object
 # that imports the SDK on first call/isinstance check. This preserves:
@@ -67,6 +60,7 @@ from urllib.parse import urlparse, parse_qs, urlunparse
 # ModuleNotFoundError on broken/partial installs where `fire` isn't present.
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 from hermes_constants import get_hermes_home
 
@@ -97,13 +91,13 @@ def _launch_cwd_for_session(source: str) -> Optional[str]:
 
 # OpenAI lazy proxy + safe stdio + proxy URL helpers — see agent/process_bootstrap.py.
 # `OpenAI` is re-exported here so `patch("run_agent.OpenAI", ...)` in tests works.
+# The other `# noqa: F401` re-exports below cover names accessed via
+# `mock.patch("run_agent.<X>")`, `from run_agent import <X>` in production
+# siblings, or the `_ra().<X>` indirection in agent/system_prompt.py — none
+# of which ruff's in-module usage scan can see.
 from agent.process_bootstrap import (
-    OpenAI,
-    _OpenAIProxy,
-    _load_openai_cls,
-    _SafeWriter,
-    _install_safe_stdio,
-    _get_proxy_from_env,
+    OpenAI,  # noqa: F401  # re-exported for tests that mock.patch("run_agent.OpenAI")
+    _SafeWriter,  # noqa: F401  # re-exported for tests that `from run_agent import _SafeWriter`
     _get_proxy_for_base_url,
 )
 from agent.iteration_budget import IterationBudget
@@ -127,77 +121,38 @@ else:
 
 # Import our tool system
 from model_tools import (
-    get_tool_definitions,
+    get_tool_definitions,  # noqa: F401  # re-exported for tests that mock.patch("run_agent.get_tool_definitions")
     get_toolset_for_tool,
-    handle_function_call,
-    check_toolset_requirements,
+    handle_function_call,  # noqa: F401  # re-exported for tests that mock.patch("run_agent.handle_function_call")
+    check_toolset_requirements,  # noqa: F401  # re-exported for tests that mock.patch("run_agent.check_toolset_requirements")
 )
-from tools.terminal_tool import cleanup_vm, get_active_env, is_persistent_env
-from tools.terminal_tool import (
-    set_approval_callback as _set_approval_callback,
-    set_sudo_password_callback as _set_sudo_password_callback,
-    _get_approval_callback,
-    _get_sudo_password_callback,
-)
-from tools.tool_result_storage import maybe_persist_tool_result, enforce_turn_budget
+from tools.terminal_tool import cleanup_vm
 from tools.interrupt import set_interrupt as _set_interrupt
 from tools.browser_tool import cleanup_browser
 
 
 # Agent internals extracted to agent/ package for modularity
-from agent.memory_manager import StreamingContextScrubber, build_memory_context_block, sanitize_context
-from agent.think_scrubber import StreamingThinkScrubber
-from agent.retry_utils import jittered_backoff
-from agent.error_classifier import classify_api_error, FailoverReason
+from agent.memory_manager import sanitize_context
+from agent.error_classifier import FailoverReason
 from agent.redact import redact_sensitive_text
-from agent.prompt_builder import (
-    DEFAULT_AGENT_IDENTITY, PLATFORM_HINTS,
-    MEMORY_GUIDANCE, SESSION_SEARCH_GUIDANCE, SKILLS_GUIDANCE,
-    HERMES_AGENT_HELP_GUIDANCE,
-    KANBAN_GUIDANCE,
-    build_nous_subscription_prompt,
-)
 from agent.model_metadata import (
-    fetch_model_metadata,
-    estimate_tokens_rough, estimate_messages_tokens_rough, estimate_request_tokens_rough,
-    get_next_probe_tier, parse_context_limit_from_error,
-    parse_available_output_tokens_from_error,
-    save_context_length, is_local_endpoint,
-    query_ollama_num_ctx,
+    estimate_request_tokens_rough,  # noqa: F401  # re-exported for tests that mock.patch("run_agent.estimate_request_tokens_rough")
+    is_local_endpoint,
 )
-from agent.context_compressor import ContextCompressor
-from agent.subdirectory_hints import SubdirectoryHintTracker
-from agent.prompt_caching import apply_anthropic_cache_control
-from agent.prompt_builder import build_skills_system_prompt, build_context_files_prompt, build_environment_hints, load_soul_md, TOOL_USE_ENFORCEMENT_GUIDANCE, TOOL_USE_ENFORCEMENT_MODELS, GOOGLE_MODEL_OPERATIONAL_GUIDANCE, OPENAI_MODEL_EXECUTION_GUIDANCE
-from agent.usage_pricing import estimate_usage_cost, normalize_usage
-from agent.codex_responses_adapter import (
-    _derive_responses_function_call_id as _codex_derive_responses_function_call_id,
-    _deterministic_call_id as _codex_deterministic_call_id,
-    _split_responses_tool_id as _codex_split_responses_tool_id,
-    _summarize_user_message_for_log,
+from agent.usage_pricing import normalize_usage
+# Re-exported for tests that monkeypatch these symbols on run_agent.
+from agent.context_compressor import ContextCompressor  # noqa: F401
+from agent.retry_utils import jittered_backoff  # noqa: F401
+from agent.prompt_builder import (  # noqa: F401  # re-exported via _ra() / mock.patch("run_agent.<name>") / from run_agent import <name>
+    DEFAULT_AGENT_IDENTITY,
+    build_skills_system_prompt,
+    build_context_files_prompt,
+    build_environment_hints,
+    build_nous_subscription_prompt,
+    load_soul_md,
 )
-from agent.display import (
-    KawaiiSpinner, build_tool_preview as _build_tool_preview,
-    get_cute_tool_message as _get_cute_tool_message_impl,
-    _detect_tool_failure,
-    get_tool_emoji as _get_tool_emoji,
-)
-from agent.tool_guardrails import (
-    ToolCallGuardrailConfig,
-    ToolCallGuardrailController,
-    ToolGuardrailDecision,
-    append_toolguard_guidance,
-    toolguard_synthetic_result,
-)
-from agent.tool_result_classification import (
-    FILE_MUTATING_TOOL_NAMES as _FILE_MUTATING_TOOLS,
-    file_mutation_result_landed,
-)
-from agent.trajectory import (
-    convert_scratchpad_to_think,
-    save_trajectory as _save_trajectory_to_file,
-)
-from agent.message_sanitization import (
+from agent.process_bootstrap import _get_proxy_from_env  # noqa: F401
+from agent.message_sanitization import (  # noqa: F401
     _SURROGATE_RE,
     _sanitize_surrogates,
     _sanitize_structure_surrogates,
@@ -210,25 +165,38 @@ from agent.message_sanitization import (
     _strip_images_from_messages,
     _sanitize_structure_non_ascii,
 )
+from agent.codex_responses_adapter import (
+    _derive_responses_function_call_id as _codex_derive_responses_function_call_id,
+    _deterministic_call_id as _codex_deterministic_call_id,
+    _split_responses_tool_id as _codex_split_responses_tool_id,
+    _summarize_user_message_for_log,  # also used by _sync_external_memory_for_turn (memory boundary)
+)
+from agent.tool_guardrails import (
+    ToolGuardrailDecision,
+    append_toolguard_guidance,
+    toolguard_synthetic_result,
+)
+from agent.tool_result_classification import (
+    FILE_MUTATING_TOOL_NAMES as _FILE_MUTATING_TOOLS,
+    file_mutation_result_landed,
+)
+from agent.trajectory import (
+    convert_scratchpad_to_think,
+    save_trajectory as _save_trajectory_to_file,
+)
 from agent.tool_dispatch_helpers import (
-    _NEVER_PARALLEL_TOOLS,
-    _PARALLEL_SAFE_TOOLS,
-    _PATH_SCOPED_TOOLS,
-    _DESTRUCTIVE_PATTERNS,
-    _REDIRECT_OVERWRITE,
-    _is_destructive_command,
     _should_parallelize_tool_batch,
-    _extract_parallel_scope_path,
-    _paths_overlap,
+    _is_destructive_command,  # noqa: F401  # re-exported for tests that access `run_agent._is_destructive_command`
+    _extract_parallel_scope_path,  # noqa: F401  # re-exported for tests that `from run_agent import _extract_parallel_scope_path`
+    _paths_overlap,  # noqa: F401  # re-exported for tests that `from run_agent import _paths_overlap`
     _is_multimodal_tool_result,
     _multimodal_text_summary,
-    _append_subdir_hint_to_multimodal,
+    _append_subdir_hint_to_multimodal,  # noqa: F401  # re-exported for tests that `from run_agent import _append_subdir_hint_to_multimodal`
     _extract_file_mutation_targets,
     _extract_error_preview,
-    _trajectory_normalize_msg,
+    _trajectory_normalize_msg,  # noqa: F401  # re-exported for tests that `from run_agent import _trajectory_normalize_msg`
 )
-from utils import atomic_json_write, base_url_host_matches, base_url_hostname, env_var_enabled, is_truthy_value, normalize_proxy_url
-from hermes_cli.config import cfg_get
+from utils import atomic_json_write, base_url_host_matches, base_url_hostname, is_truthy_value, model_forces_max_completion_tokens
 
 
 
@@ -390,6 +358,7 @@ class AIAgent:
         save_trajectories: bool = False,
         verbose_logging: bool = False,
         quiet_mode: bool = False,
+        tool_progress_mode: str = "all",
         ephemeral_system_prompt: str = None,
         log_prefix_chars: int = 100,
         log_prefix: str = "",
@@ -407,6 +376,7 @@ class AIAgent:
         thinking_callback: callable = None,
         reasoning_callback: callable = None,
         clarify_callback: callable = None,
+        read_terminal_callback: callable = None,
         step_callback: callable = None,
         stream_delta_callback: callable = None,
         interim_assistant_callback: callable = None,
@@ -462,6 +432,7 @@ class AIAgent:
             save_trajectories=save_trajectories,
             verbose_logging=verbose_logging,
             quiet_mode=quiet_mode,
+            tool_progress_mode=tool_progress_mode,
             ephemeral_system_prompt=ephemeral_system_prompt,
             log_prefix_chars=log_prefix_chars,
             log_prefix=log_prefix,
@@ -479,6 +450,7 @@ class AIAgent:
             thinking_callback=thinking_callback,
             reasoning_callback=reasoning_callback,
             clarify_callback=clarify_callback,
+            read_terminal_callback=read_terminal_callback,
             step_callback=step_callback,
             stream_delta_callback=stream_delta_callback,
             interim_assistant_callback=interim_assistant_callback,
@@ -538,15 +510,17 @@ class AIAgent:
         """Create session DB row on first use. Disables _session_db on failure."""
         if self._session_db_created or not self._session_db:
             return
+        source = self.platform or os.environ.get("HERMES_SESSION_SOURCE", "cli")
         try:
             self._session_db.create_session(
                 session_id=self.session_id,
-                source=self.platform or os.environ.get("HERMES_SESSION_SOURCE", "cli"),
+                source=source,
                 model=self.model,
                 model_config=self._session_init_model_config,
                 system_prompt=self._cached_system_prompt,
                 user_id=None,
                 parent_session_id=self._parent_session_id,
+                cwd=_launch_cwd_for_session(source),
             )
             self._session_db_created = True
         except Exception as e:
@@ -625,7 +599,12 @@ class AIAgent:
             except Exception as exc:
                 logger.debug("context engine carry_over_new_session_context during transition: %s", exc)
 
-    def reset_session_state(self):
+    def reset_session_state(
+        self,
+        previous_messages: Optional[list] = None,
+        old_session_id: Optional[str] = None,
+        carry_over_context: bool = False,
+    ):
         """Reset all session-scoped token counters to 0 for a fresh session.
         
         This method encapsulates the reset logic for all session-level metrics
@@ -639,9 +618,12 @@ class AIAgent:
         
         The method safely handles optional attributes (e.g., context compressor)
         using ``hasattr`` checks.
-        
-        This keeps the counter reset logic DRY and maintainable in one place
-        rather than scattering it across multiple methods.
+
+        When ``previous_messages`` / ``old_session_id`` / ``carry_over_context``
+        are provided, the active context engine is notified through the
+        full transition lifecycle (``_transition_context_engine_session``)
+        instead of a bare reset. Default callers pass nothing and keep the
+        existing reset-only behavior.
         """
         # Token usage counters
         self.session_total_tokens = 0
@@ -660,9 +642,14 @@ class AIAgent:
         # Turn counter (added after reset_session_state was first written — #2635)
         self._user_turn_count = 0
 
-        # Context engine reset (works for both built-in compressor and plugins)
-        if hasattr(self, "context_compressor") and self.context_compressor:
-            self.context_compressor.on_session_reset()
+        # Context engine reset/transition (works for built-in compressor and plugins)
+        self._transition_context_engine_session(
+            old_session_id=old_session_id,
+            new_session_id=getattr(self, "session_id", None),
+            previous_messages=previous_messages,
+            carry_over_context=carry_over_context,
+            reset_engine=True,
+        )
 
     def _ensure_lmstudio_runtime_loaded(self, config_context_length: Optional[int] = None) -> None:
         """
@@ -1116,7 +1103,11 @@ class AIAgent:
           1. ``providers.<id>.models.<model>.stale_timeout_seconds``
           2. ``providers.<id>.stale_timeout_seconds``
           3. ``HERMES_API_CALL_STALE_TIMEOUT`` env var
-          4. 300.0s default
+          4. 90.0s default (time-to-first-byte for non-streaming / Codex
+             internal-streaming requests; lowered from 300s in May 2026 so
+             fallback providers kick in faster when upstream providers
+             stall).  The detector still scales up for large contexts in
+             ``_compute_non_stream_stale_timeout``.
 
         Returns ``(timeout_seconds, uses_implicit_default)`` so the caller can
         preserve legacy behaviors that only apply when the user has *not*
@@ -1131,20 +1122,27 @@ class AIAgent:
         if env_timeout is not None:
             return float(env_timeout), False
 
-        return 300.0, True
+        return 90.0, True
 
-    def _compute_non_stream_stale_timeout(self, messages: list[dict[str, Any]]) -> float:
-        """Compute the effective non-stream stale timeout for this request."""
+    def _compute_non_stream_stale_timeout(self, api_payload: Any) -> float:
+        """Compute the effective non-stream stale timeout for this request.
+
+        Accepts either the full ``api_kwargs`` dict (Chat Completions or
+        Responses API) or a legacy ``messages`` list.  Context-size scaling
+        applies the same way to both shapes via
+        :func:`agent.chat_completion_helpers.estimate_request_context_tokens`.
+        """
         stale_base, uses_implicit_default = self._resolved_api_call_stale_timeout_base()
         base_url = getattr(self, "_base_url", None) or self.base_url or ""
         if uses_implicit_default and base_url and is_local_endpoint(base_url):
             return float("inf")
 
-        est_tokens = sum(len(str(v)) for v in messages) // 4
+        from agent.chat_completion_helpers import estimate_request_context_tokens
+        est_tokens = estimate_request_context_tokens(api_payload)
         if est_tokens > 100_000:
-            return max(stale_base, 600.0)
+            return max(stale_base, 240.0)
         if est_tokens > 50_000:
-            return max(stale_base, 450.0)
+            return max(stale_base, 150.0)
         return stale_base
 
     def _codex_silent_hang_hint(self, model: Optional[str] = None) -> Optional[str]:
@@ -1186,7 +1184,7 @@ class AIAgent:
         # vendor-prefixed variants like ``openai/gpt-5.5``, and any future
         # ``gpt-5.5-*`` SKU.  Anchor at a word boundary on either side so
         # unrelated tokens like ``gpt-5.50`` do not match.
-        if not re.search(r"(?:^|[/\-_])gpt-5\.5(?:$|[_\-])", model_lower):
+        if not re.search(r"(?:^|[/\-_])gpt-5\.5(?:$|[\-_])", model_lower):
             return None
         return (
             f"Codex backend appears to be silently rejecting {eff_model!r} "
@@ -1255,13 +1253,24 @@ class AIAgent:
     def _max_tokens_param(self, value: int) -> dict:
         """Return the correct max tokens kwarg for the current provider.
 
-        OpenAI's newer models (gpt-4o, o-series, gpt-5+) require
-        'max_completion_tokens'. Azure OpenAI also requires
-        'max_completion_tokens' for gpt-5.x models served via the
-        OpenAI-compatible endpoint. OpenRouter, local models, and older
+        OpenAI's newer models (gpt-4o, gpt-4.1, gpt-5+, o-series) require
+        'max_completion_tokens'. Azure OpenAI and GitHub Copilot also require
+        'max_completion_tokens' for those families served via their
+        OpenAI-compatible endpoints. OpenRouter, local models, and older
         OpenAI models use 'max_tokens'.
+
+        The check is URL-first (api.openai.com / Azure / Copilot all use the
+        new kwarg), then falls back to a model-name check so third-party
+        OpenAI-compatible endpoints fronting those models are recognised —
+        URL-only detection misses that case and silently sends the wrong
+        kwarg, which the upstream model rejects with a 400.
         """
-        if self._is_direct_openai_url() or self._is_azure_openai_url() or self._is_github_copilot_url():
+        if (
+            self._is_direct_openai_url()
+            or self._is_azure_openai_url()
+            or self._is_github_copilot_url()
+            or model_forces_max_completion_tokens(self.model)
+        ):
             return {"max_completion_tokens": value}
         return {"max_tokens": value}
 
@@ -1539,9 +1548,10 @@ class AIAgent:
     def _flush_messages_to_session_db(self, messages: List[Dict], conversation_history: List[Dict] = None):
         """Persist any un-flushed messages to the SQLite session store.
 
-        Uses _last_flushed_db_idx to track which messages have already been
-        written, so repeated calls (from multiple exit paths) only write
-        truly new messages — preventing the duplicate-write bug (#860).
+        Uses per-session message identity tracking so repeated calls (from
+        multiple exit paths) only write truly new messages — preventing the
+        duplicate-write bug (#860) without relying on positional slices that
+        can drift after message-sequence repair.
         """
         if not self._session_db:
             return
@@ -1550,9 +1560,41 @@ class AIAgent:
             # Retry row creation if the earlier attempt failed transiently.
             if not self._session_db_created:
                 self._ensure_db_session()
-            start_idx = len(conversation_history) if conversation_history else 0
-            flush_from = max(start_idx, self._last_flushed_db_idx)
-            for msg in messages[flush_from:]:
+            # Positional flushing used to slice at
+            # max(len(conversation_history), _last_flushed_db_idx). That
+            # assumes the live `messages` list is the original history plus a
+            # new tail. repair_message_sequence can shrink/merge the history
+            # copy before the final flush, making len(conversation_history)
+            # larger than len(messages); the slice is then empty and delivered
+            # assistant responses never reach state.db (#46053).
+            #
+            # Track object identities instead. `messages` is a shallow copy of
+            # `conversation_history`, so history dicts are skipped by identity,
+            # and new dicts appended during this turn are written once even if
+            # repair compacts the list around them.
+            current_session_id = getattr(self, "session_id", None)
+            flushed_session_id = getattr(self, "_flushed_db_message_session_id", None)
+            if flushed_session_id != current_session_id or self._last_flushed_db_idx == 0:
+                self._flushed_db_message_ids = set()
+                self._flushed_db_message_session_id = current_session_id
+            flushed_ids = getattr(self, "_flushed_db_message_ids", None)
+            if not isinstance(flushed_ids, set):
+                flushed_ids = set()
+                self._flushed_db_message_ids = flushed_ids
+            history_ids = {
+                id(item) for item in (conversation_history or [])
+                if isinstance(item, dict)
+            }
+
+            for msg in messages:
+                if not isinstance(msg, dict):
+                    continue
+                msg_id = id(msg)
+                if msg_id in flushed_ids:
+                    continue
+                if msg_id in history_ids:
+                    flushed_ids.add(msg_id)
+                    continue
                 role = msg.get("role", "unknown")
                 content = msg.get("content")
                 # Persist multimodal tool results as their text summary only —
@@ -1591,6 +1633,7 @@ class AIAgent:
                     codex_reasoning_items=msg.get("codex_reasoning_items") if role == "assistant" else None,
                     codex_message_items=msg.get("codex_message_items") if role == "assistant" else None,
                 )
+                flushed_ids.add(msg_id)
             self._last_flushed_db_idx = len(messages)
         except Exception as e:
             logger.warning("Session DB append_message failed: %s", e)
@@ -2215,6 +2258,14 @@ class AIAgent:
                 if msg.get("role") == "assistant" and msg.get("content"):
                     msg = dict(msg)
                     msg["content"] = self._clean_session_content(msg["content"])
+                # Defence-in-depth: redact credentials from every message
+                # content before persistence. Catches PATs / API keys / Bearer
+                # tokens that may have leaked into assistant responses, tool
+                # output, or user paste. Respects HERMES_REDACT_SECRETS via
+                # redact_sensitive_text — no-op when disabled. (#19798, #19845)
+                if "content" in msg:
+                    msg = dict(msg)
+                    msg["content"] = self._redact_message_content(msg.get("content"))
                 cleaned.append(msg)
 
             # Guard: never overwrite a larger session log with fewer messages.
@@ -2240,7 +2291,7 @@ class AIAgent:
                 "platform": self.platform,
                 "session_start": self.session_start.isoformat(),
                 "last_updated": datetime.now().isoformat(),
-                "system_prompt": self._cached_system_prompt or "",
+                "system_prompt": redact_sensitive_text(self._cached_system_prompt or ""),
                 "tools": self.tools or [],
                 "message_count": len(cleaned),
                 "messages": cleaned,
@@ -2486,7 +2537,7 @@ class AIAgent:
     # user-facing footer, it can never be matched as a deliverable bare
     # path and silently uploaded to a messaging channel (#35584).
     _FOOTER_PATH_RE = re.compile(
-        r"(?<![/:\\w.`])(?:~/|/|[A-Za-z]:[/\\\\])(?:[\\w.\\-]+[/\\\\])*[\\w.\\-]+\\.[\\w]+",
+        r"(?<![/:\w.`])(?:~/|/|[A-Za-z]:[/\\])(?:[\w.\-]+[/\\])*[\w.\-]+\.[\w]+",
     )
 
     @classmethod
@@ -2673,9 +2724,26 @@ class AIAgent:
         return apply_pending_steer_to_tool_results(self, messages, num_tool_msgs)
 
     def _touch_activity(self, desc: str) -> None:
-        """Update the last-activity timestamp and description (thread-safe)."""
+        """Update the last-activity timestamp and description (thread-safe).
+
+        Also bridges to the kanban board's heartbeat fields when this
+        process is a dispatcher-spawned worker (HERMES_KANBAN_TASK set),
+        so the dispatcher watchdog doesn't reclaim an actively-running
+        worker as stale (#31752). Bridge is rate-limited (60s) and
+        best-effort — it never raises into the agent loop.
+        """
         self._last_activity_ts = time.time()
         self._last_activity_desc = desc
+        if os.environ.get("HERMES_KANBAN_TASK"):
+            try:
+                from tools.kanban_tools import heartbeat_current_worker_from_env
+                heartbeat_current_worker_from_env()
+            except Exception:
+                # Never let the bridge break the agent loop.  The function
+                # already swallows exceptions internally; this outer guard
+                # covers import-time failures (kanban_tools unavailable,
+                # etc.) on niche deployment surfaces.
+                pass
 
     def _capture_rate_limits(self, http_response: Any) -> None:
         """Parse x-ratelimit-* headers from an HTTP response and cache the state.
@@ -2793,21 +2861,53 @@ class AIAgent:
         """
         if getattr(self, "notice_callback", None) is None and getattr(self, "notice_clear_callback", None) is None:
             return
+        if not self._credits_notices_enabled():
+            return
         state = getattr(self, "_credits_state", None)
         if state is None:
             return
         try:
-            from agent.credits_tracker import evaluate_credits_notices
+            from agent.credits_tracker import evaluate_credits_notices, is_free_tier_model
             latch = getattr(self, "_credits_latch", None)
             if latch is None:
                 latch = self._credits_latch = {"active": set(), "seen_below_90": False, "usage_band": None}
-            to_show, to_clear = evaluate_credits_notices(state, latch)
+            # Free-model gate: a depleted account on a free model can still
+            # inference, so the depleted error banner is suppressed. Local-data
+            # only (":free" suffix + pricing-cache peek) — never a network call.
+            model_is_free = is_free_tier_model(
+                getattr(self, "model", "") or "",
+                getattr(self, "base_url", "") or "",
+            )
+            to_show, to_clear = evaluate_credits_notices(state, latch, model_is_free=model_is_free)
             for key in to_clear:        # clears FIRST …
                 self._emit_notice_clear(key)
             for notice in to_show:      # … then shows (depleted lands last in a latest-wins slot)
                 self._emit_notice(notice)
         except Exception:
             logger.warning("credits notice evaluation/emit failed", exc_info=True)
+
+    def _credits_notices_enabled(self) -> bool:
+        """Whether credits notices are enabled (config display.credits_notices).
+
+        Read once per agent and cached — the policy runs after every API
+        response, and the setting governs UI noise, not correctness, so a
+        config flip applying on the next session is fine.  Fail-open True
+        (preserve current behaviour) on any config error.
+        """
+        cached = getattr(self, "_credits_notices_enabled_cache", None)
+        if cached is not None:
+            return cached
+        enabled = True
+        try:
+            from hermes_cli.config import load_config as _load_config
+            _cfg = _load_config() or {}
+            _display = _cfg.get("display") if isinstance(_cfg, dict) else None
+            if isinstance(_display, dict) and "credits_notices" in _display:
+                enabled = bool(_display.get("credits_notices"))
+        except Exception:
+            enabled = True
+        self._credits_notices_enabled_cache = enabled
+        return enabled
 
     def get_credits_state(self):
         """Return the last captured CreditsState, or None."""
@@ -2949,13 +3049,24 @@ class AIAgent:
             return
         if not (self._memory_manager and final_response and original_user_message):
             return
+        # Multimodal turns carry content as a list of typed parts; providers
+        # expect plain strings, so flatten to text first (newline-joined for
+        # memory, vs the default space-join used for log/trajectory previews).
+        user_text = _summarize_user_message_for_log(original_user_message, sep="\n")
+        response_text = _summarize_user_message_for_log(final_response, sep="\n")
+        if not (user_text and response_text):
+            return
         try:
+            sync_kwargs = {"session_id": self.session_id or ""}
+            if messages is not None:
+                sync_kwargs["messages"] = messages
             self._memory_manager.sync_all(
-                original_user_message, final_response,
-                session_id=self.session_id or "",
+                user_text,
+                response_text,
+                **sync_kwargs,
             )
             self._memory_manager.queue_prefetch_all(
-                original_user_message,
+                user_text,
                 session_id=self.session_id or "",
             )
         except Exception:
@@ -3064,6 +3175,17 @@ class AIAgent:
         except Exception:
             pass
 
+        # 6. Free conversation history.  Mirrors _release_evicted_agent_soft's
+        # soft-eviction clear — close() is the hard teardown for true session
+        # boundaries (/new, /reset, session expiry), so the message list won't
+        # be reused.  Drops the reference proactively rather than waiting for
+        # the agent object itself to be collected, which matters when a caller
+        # still holds the closed agent (e.g. a draining background task).
+        try:
+            self._session_messages = []
+        except Exception:
+            pass
+
     def _hydrate_todo_store(self, history: List[Dict[str, Any]]) -> None:
         """
         Recover todo state from conversation history.
@@ -3153,7 +3275,11 @@ class AIAgent:
         return sanitize_api_messages(messages)
 
     @staticmethod
-    def _is_thinking_only_assistant(msg: Dict[str, Any]) -> bool:
+    def _is_thinking_only_assistant(
+        msg: Dict[str, Any],
+        *,
+        drop_codex_reasoning_items: bool = True,
+    ) -> bool:
         """Return True if ``msg`` is an assistant turn whose only payload is reasoning.
 
         "Thinking-only" means the model emitted reasoning (``reasoning`` or
@@ -3204,15 +3330,30 @@ class AIAgent:
         rd = msg.get("reasoning_details")
         if isinstance(rd, list) and rd:
             return True
+        # Codex Responses stores encrypted reasoning state under a separate
+        # assistant-message key. Treat only real reasoning items as
+        # thinking-only; empty/junk lists should fall through to the generic
+        # empty-turn handling instead of being dropped here.
+        codex_items = msg.get("codex_reasoning_items")
+        if drop_codex_reasoning_items and isinstance(codex_items, list):
+            return any(
+                isinstance(item, dict) and item.get("type") == "reasoning"
+                for item in codex_items
+            )
         return False
 
     @staticmethod
     def _drop_thinking_only_and_merge_users(
         messages: List[Dict[str, Any]],
+        *,
+        drop_codex_reasoning_items: bool = True,
     ) -> List[Dict[str, Any]]:
         """Forwarder — see ``agent.agent_runtime_helpers.drop_thinking_only_and_merge_users``."""
         from agent.agent_runtime_helpers import drop_thinking_only_and_merge_users
-        return drop_thinking_only_and_merge_users(messages)
+        return drop_thinking_only_and_merge_users(
+            messages,
+            drop_codex_reasoning_items=drop_codex_reasoning_items,
+        )
 
     @staticmethod
     def _cap_delegate_task_calls(tool_calls: list) -> list:
@@ -3622,25 +3763,20 @@ class AIAgent:
 
         return True
 
-    def _try_refresh_nous_client_credentials(self, *, force: bool = True) -> bool:
+    def _try_refresh_nous_client_credentials(
+        self,
+        *,
+        force: bool = True,
+    ) -> bool:
         if self.api_mode != "chat_completions" or self.provider != "nous":
             return False
 
         try:
-            from hermes_cli.auth import (
-                NOUS_INFERENCE_AUTH_MODE_AUTO,
-                NOUS_INFERENCE_AUTH_MODE_LEGACY,
-                resolve_nous_runtime_credentials,
-            )
+            from hermes_cli.auth import resolve_nous_runtime_credentials
 
             creds = resolve_nous_runtime_credentials(
-                min_key_ttl_seconds=max(60, int(os.getenv("HERMES_NOUS_MIN_KEY_TTL_SECONDS", "1800"))),
                 timeout_seconds=float(os.getenv("HERMES_NOUS_TIMEOUT_SECONDS", "15")),
-                inference_auth_mode=(
-                    NOUS_INFERENCE_AUTH_MODE_LEGACY
-                    if force
-                    else NOUS_INFERENCE_AUTH_MODE_AUTO
-                ),
+                force_refresh=force,
             )
         except Exception as exc:
             logger.debug("Nous credential refresh failed: %s", exc)
@@ -3753,15 +3889,12 @@ class AIAgent:
 
     def _apply_client_headers_for_base_url(self, base_url: str) -> None:
         from agent.auxiliary_client import (
-            _AI_GATEWAY_HEADERS,
             build_nvidia_nim_headers,
             build_or_headers,
         )
 
         if base_url_host_matches(base_url, "openrouter.ai"):
             self._client_kwargs["default_headers"] = build_or_headers()
-        elif base_url_host_matches(base_url, "ai-gateway.vercel.sh"):
-            self._client_kwargs["default_headers"] = dict(_AI_GATEWAY_HEADERS)
         elif base_url_host_matches(base_url, "integrate.api.nvidia.com"):
             self._client_kwargs["default_headers"] = build_nvidia_nim_headers(base_url)
         elif base_url_host_matches(base_url, "api.routermint.com"):
@@ -3889,6 +4022,13 @@ class AIAgent:
     def _anthropic_messages_create(self, api_kwargs: dict):
         if self.api_mode == "anthropic_messages":
             self._try_refresh_anthropic_client_credentials()
+        # Defensive: strip Responses-only kwargs that can leak in under an
+        # api_mode-flip race (the Anthropic SDK raises a non-retryable
+        # TypeError on them). See #31673.
+        from agent.anthropic_adapter import sanitize_anthropic_kwargs
+        sanitize_anthropic_kwargs(
+            api_kwargs, log_prefix=getattr(self, "log_prefix", "")
+        )
         return self._anthropic_client.messages.create(**api_kwargs)
 
     def _rebuild_anthropic_client(self) -> None:
@@ -4396,13 +4536,17 @@ class AIAgent:
             return content
 
         if self._model_supports_vision():
-            # Vision-capable on paper — but if we've already learned in this
-            # session that the active (provider, model) rejects list-type
-            # tool content (e.g. Xiaomi MiMo's 400 "text is not set"),
-            # short-circuit to a text summary so we don't burn another
-            # round-trip relearning the same lesson.  Cache populated by
-            # the 400 recovery path in agent.conversation_loop.  Transient
-            # per-session; next session retries.
+            # Vision-capable on paper — but if the provider rejects list-type
+            # tool content (e.g. Xiaomi MiMo's 400 "text is not set"), or if
+            # we've already learned this lesson in-session, short-circuit to
+            # a text summary so we don't burn a round-trip relearning it.
+            if not self._provider_supports_vision_tool_messages():
+                logger.debug(
+                    "Tool %s: provider %s does not accept list-type tool "
+                    "content — sending text summary",
+                    tool_name, getattr(self, "provider", ""),
+                )
+                return _multimodal_text_summary(result)
             key = (
                 (getattr(self, "provider", "") or "").strip().lower(),
                 (getattr(self, "model", "") or "").strip(),
@@ -4438,10 +4582,18 @@ class AIAgent:
         )
         return summary
 
-    def _try_shrink_image_parts_in_messages(self, api_messages: list) -> bool:
+    def _try_shrink_image_parts_in_messages(
+        self,
+        api_messages: list,
+        *,
+        max_dimension: int = 8000,
+    ) -> bool:
         """Forwarder — see ``agent.conversation_compression.try_shrink_image_parts_in_messages``."""
         from agent.conversation_compression import try_shrink_image_parts_in_messages
-        return try_shrink_image_parts_in_messages(api_messages)
+        return try_shrink_image_parts_in_messages(
+            api_messages,
+            max_dimension=max_dimension,
+        )
 
     def _try_strip_image_parts_from_tool_messages(self, api_messages: list) -> bool:
         """Downgrade list-type tool messages to text summaries in-place.
@@ -4629,8 +4781,6 @@ class AIAgent:
         known reasoning-capable model families and direct Nous Portal.
         """
         if base_url_host_matches(self._base_url_lower, "nousresearch.com"):
-            return True
-        if base_url_host_matches(self._base_url_lower, "ai-gateway.vercel.sh"):
             return True
         if (
             base_url_host_matches(self._base_url_lower, "models.github.ai")

@@ -4,13 +4,16 @@ import logging
 import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import httpx
 
 from agent.anthropic_adapter import _is_oauth_token, resolve_anthropic_token
 from hermes_cli.auth import _read_codex_tokens, resolve_codex_runtime_credentials
 from hermes_cli.runtime_provider import resolve_runtime_provider
+
+if TYPE_CHECKING:
+    from typing import TypeGuard
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +124,7 @@ def _fmt_usd(d: float) -> str:
     return f"${d:,.2f}"
 
 
-def _is_finite_num(v: Any) -> bool:
+def _is_finite_num(v: Any) -> TypeGuard[float]:
     """True iff v is a real numeric value (int or float, not bool, not NaN/Inf).
 
     Typed as a ``TypeGuard[float]`` so the type checker narrows ``v`` to a real
@@ -142,7 +145,7 @@ def build_nous_credits_snapshot(account_info) -> Optional[AccountUsageSnapshot]:
     account info to show (fail-open: caller just shows nothing).
     """
     try:
-        from hermes_cli.nous_account import nous_portal_billing_url
+        from hermes_cli.nous_account import nous_portal_topup_url
 
         if account_info is None or not getattr(account_info, "logged_in", False):
             return None
@@ -155,7 +158,16 @@ def build_nous_credits_snapshot(account_info) -> Optional[AccountUsageSnapshot]:
 
         # Subscription usage gauge — only when the portal supplies a positive
         # monthly_credits denominator AND a finite remaining balance that does
-        # not exceed the cap.
+        # not exceed the cap. Money math is on float dollars (allowed: numeric
+        # account fields, NOT a server-provided *_usd string). used = cap -
+        # remaining; clamp [0,100] so a debt balance (remaining < 0) reads 100%.
+        # Excluded on purpose:
+        #   - non-finite values (NaN/Infinity slip past isinstance and json.loads
+        #     parses bare NaN/Infinity by default) → would render "$nan"/"$inf"
+        #     and a falsely-confident gauge;
+        #   - remaining > cap (rollover balance spanning the period) → monthly_credits
+        #     is no longer a meaningful denominator, and "$X of $Y left" with X>Y
+        #     reads as a contradiction. Both fall back to the magnitudes lines.
         if sub is not None:
             monthly_credits = getattr(sub, "monthly_credits", None)
             sub_remaining = getattr(sub, "credits_remaining", None)
@@ -201,7 +213,8 @@ def build_nous_credits_snapshot(account_info) -> Optional[AccountUsageSnapshot]:
         if not windows and not details:
             return None
 
-        details.append(f"Manage / top up: {nous_portal_billing_url(account_info)}")
+        details.append(f"Top up: {nous_portal_topup_url(account_info)}")
+        details.append("(or run /credits)")
 
         plan = getattr(sub, "plan", None) if sub is not None else None
         return AccountUsageSnapshot(
@@ -225,6 +238,10 @@ def nous_credits_lines(*, markdown: bool = False, timeout: float = 10.0) -> list
     by the CLI ``_show_usage`` and the TUI ``session.usage`` RPC so both surfaces show
     the same block regardless of session API-call count or resume state. Fail-open:
     any auth/portal hiccup or timeout returns [] (the caller shows nothing).
+
+    Dev override: when HERMES_DEV_CREDITS_FIXTURE selects a fixture state, /usage
+    renders from that fixture instead of the real portal (so the block + gauge are
+    testable without a live account). Throwaway scaffolding.
     """
     # Dev fixture short-circuit — render /usage from the injected state, no portal.
     try:
@@ -319,6 +336,93 @@ def _snapshot_from_credits_state(state) -> Optional[AccountUsageSnapshot]:
         )
     except (AttributeError, TypeError):
         return None
+
+
+@dataclass(frozen=True)
+class CreditsView:
+    """Surface-agnostic data for the ``/credits`` command.
+
+    One portal fetch, one parse — consumed identically by the CLI panel, the
+    gateway button, and any other money surface. Fail-open: when not logged in
+    or the portal is unreachable, ``logged_in`` is False / ``topup_url`` is None
+    and callers degrade gracefully.
+    """
+
+    logged_in: bool
+    balance_lines: tuple[str, ...] = ()
+    identity_line: Optional[str] = None
+    topup_url: Optional[str] = None
+    depleted: bool = False
+
+
+def build_credits_view(*, markdown: bool = False, timeout: float = 10.0) -> CreditsView:
+    """Build the /credits view: balance block + identity line + top-up URL.
+
+    Reuses the same account fetch + snapshot + URL builder as the /usage credits
+    block, so the numbers always match. The balance block is the rendered
+    snapshot MINUS its trailing top-up/command-hint lines (the /credits surface
+    supplies its own affordance). Fail-open → ``CreditsView(logged_in=False)``.
+    """
+    not_logged_in = CreditsView(logged_in=False)
+    try:
+        from hermes_cli.auth import get_provider_auth_state
+
+        tok = (get_provider_auth_state("nous") or {}).get("access_token")
+        if not (isinstance(tok, str) and tok.strip()):
+            return not_logged_in
+    except Exception:
+        return not_logged_in
+
+    try:
+        import concurrent.futures
+
+        from hermes_cli.nous_account import (
+            get_nous_portal_account_info,
+            nous_portal_topup_url,
+        )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            account = pool.submit(get_nous_portal_account_info, force_fresh=True).result(
+                timeout=timeout
+            )
+    except Exception:
+        logger.debug("credits ▸ /credits portal fetch failed (fail-open)", exc_info=True)
+        return not_logged_in
+
+    if account is None or not getattr(account, "logged_in", False):
+        return not_logged_in
+
+    snapshot = build_nous_credits_snapshot(account)
+    # Balance lines = the snapshot block minus the two trailing affordance lines
+    # ("Top up: <url>" + "(or run /credits)") that build_nous_credits_snapshot
+    # appends for the /usage surface. /credits renders its own button/panel.
+    balance_lines: list[str] = []
+    if snapshot is not None:
+        rendered = render_account_usage_lines(snapshot, markdown=markdown)
+        balance_lines = [
+            line
+            for line in rendered
+            if not line.lstrip().startswith("Top up:")
+            and not line.lstrip().startswith("(or run")
+        ]
+
+    # Identity line — shown before any open (roadmap §4.4).
+    email = getattr(account, "email", None)
+    org_name = getattr(account, "org_name", None)
+    who: list[str] = []
+    if email:
+        who.append(str(email))
+    if org_name:
+        who.append(f"org {org_name}")
+    identity_line = ("Topping up as " + " / ".join(who)) if who else None
+
+    return CreditsView(
+        logged_in=True,
+        balance_lines=tuple(balance_lines),
+        identity_line=identity_line,
+        topup_url=nous_portal_topup_url(account),
+        depleted=getattr(account, "paid_service_access", None) is False,
+    )
 
 
 def _resolve_codex_usage_url(base_url: str) -> str:

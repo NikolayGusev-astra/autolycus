@@ -1,15 +1,8 @@
-# Autolycus Agent Security Policy
+# Hermes Agent Security Policy
 
-This document describes Autolycus Agent's trust model, names the one
+This document describes Hermes Agent's trust model, names the one
 security boundary the project treats as load-bearing, and defines the
 scope for vulnerability reports.
-
-Autolycus adds enterprise security layers **not** present in upstream Hermes Agent:
-- **SBL (System Boundary Layer)** — FHS-based path classification, pre-write dependency checks
-- **Ultra Governance Plugin** — Policy Engine (4 modes) + RTK filter
-- **Sanitize MCP** — pre-filters dangerous MCP tools
-
-See [`docs/features.md`](docs/features.md) and [`docs/autolycus/sbl-pmi.md`](docs/autolycus/sbl-pmi.md) for details.
 
 ## 1. Reporting a Vulnerability
 
