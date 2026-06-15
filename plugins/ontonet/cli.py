@@ -17,10 +17,12 @@ import logging
 import os
 import sys
 
-# Add repo to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add repo root to path.
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, REPO_ROOT)
 
 from plugins.ontonet import get_client, DEFAULT_REALM_ID
+from plugins.ontonet.diff_to_onto import apply_plan, build_plan, render_plan, repo_root_from, to_dict
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,7 @@ def cmd_search(args):
     client = get_client()
     results = client.search_entities(
         realm_id=args.realm or DEFAULT_REALM_ID,
-        query=args.query,
+        name_filter=args.query,
         template_uuid=args.template,
     )
     if results:
@@ -122,6 +124,29 @@ def cmd_nodes(args):
         print("  ❌ Failed to add nodes.")
 
 
+def cmd_diff_to_onto(args):
+    """Create Onto [UPD] entities from git diff."""
+    repo = args.repo or repo_root_from()
+    plan = build_plan(repo, args.base, args.head, limit=args.limit)
+
+    if args.format == "json":
+        print(json.dumps(to_dict(plan), indent=2, ensure_ascii=False))
+        return
+
+    print(render_plan(plan))
+
+    if args.apply:
+        result = apply_plan(
+            plan,
+            realm=args.realm or DEFAULT_REALM_ID,
+            diagram_id=args.diagram,
+            force_relations=not args.no_relations,
+            sleep=args.sleep,
+        )
+        print("\n## Apply result")
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+
+
 def cmd_tools(args):
     """List available MCP tools."""
     client = get_client()
@@ -168,6 +193,18 @@ def main():
     # tools
     sub.add_parser("tools", help="List available MCP tools")
 
+    # diff-to-onto
+    p_diff = sub.add_parser("diff-to-onto", help="Parse git diff and plan/apply Onto [UPD] sync")
+    p_diff.add_argument("--base", default="upstream/main", help="Base ref, default: upstream/main")
+    p_diff.add_argument("--head", default="HEAD", help="Head ref, default: HEAD")
+    p_diff.add_argument("--repo", help="Git repo root, default: current git repo")
+    p_diff.add_argument("--limit", type=int, help="Limit number of changed files")
+    p_diff.add_argument("--apply", action="store_true", help="Create entities/relations in Onto")
+    p_diff.add_argument("--diagram", help="Diagram ID to add planned entities as nodes")
+    p_diff.add_argument("--no-relations", action="store_true", help="Do not create relations even with --apply")
+    p_diff.add_argument("--sleep", type=float, default=0.35, help="Pause between MCP calls, seconds")
+    p_diff.add_argument("--format", choices=["text", "json"], default="text", help="Dry-run output format")
+
     args = parser.parse_args()
 
     if args.verbose:
@@ -186,6 +223,7 @@ def main():
         "diagram": cmd_diagram,
         "nodes": cmd_nodes,
         "tools": cmd_tools,
+        "diff-to-onto": cmd_diff_to_onto,
     }
 
     handler = cmds.get(args.command)
