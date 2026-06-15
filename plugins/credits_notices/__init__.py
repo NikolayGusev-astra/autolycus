@@ -9,7 +9,7 @@ Hook: after_llm_response
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,6 @@ def is_free_tier_model(model: str, base_url: str = "") -> bool:
     if not model:
         return False
     model_lower = model.lower()
-    # Common free model patterns
     free_patterns = [
         "free", ":free", "nova", "gemini-2.0-flash",
     ]
@@ -39,24 +38,55 @@ def credits_notices_enabled() -> bool:
     return True
 
 
-def after_llm_response(state: Any, latch: Any,
-                      model_is_free: bool = False) -> tuple:
+def after_llm_response(**kwargs) -> None:
     """Hook: evaluate credits notices after LLM response.
     
-    Called by run_agent.py after each LLM API response.
-    Returns (notices_to_show, notices_to_clear).
+    Called by run_agent.py with kwargs: agent, state, latch, model, base_url.
     """
+    agent = kwargs.get("agent")
+    state = kwargs.get("state")
+    latch = kwargs.get("latch")
+    model = kwargs.get("model", "")
+    base_url = kwargs.get("base_url", "")
+    
+    if agent is None or state is None:
+        return
+    
+    # Check if notices are enabled
     try:
-        from agent.credits_tracker import evaluate_credits_notices
-        return evaluate_credits_notices(state, latch, model_is_free=model_is_free)
+        enabled = agent._credits_notices_enabled()
+    except AttributeError:
+        enabled = credits_notices_enabled()
+    
+    if not enabled:
+        return
+    
+    try:
+        from agent.credits_tracker import evaluate_credits_notices, is_free_tier_model as _is_free
+        
+        if latch is None:
+            latch = {"active": set(), "seen_below_90": False, "usage_band": None}
+        
+        model_is_free = _is_free(model, base_url)
+        to_show, to_clear = evaluate_credits_notices(state, latch, model_is_free=model_is_free)
+        
+        # Emit notices via agent callbacks
+        if to_show and hasattr(agent, "notice_callback") and agent.notice_callback:
+            for notice in to_show:
+                try:
+                    agent.notice_callback(notice)
+                except Exception as e:
+                    logger.debug("credits notice error: %s", e)
+        
+        if to_clear and hasattr(agent, "notice_clear_callback") and agent.notice_clear_callback:
+            for key in to_clear:
+                try:
+                    agent.notice_clear_callback(key)
+                except Exception as e:
+                    logger.debug("credits notice clear error: %s", e)
+                    
     except Exception as e:
-        logger.debug("credits_notices hook error: %s", e)
-        return [], []
-
-
-def get_credit_display_enabled() -> bool:
-    """Check if credits display is enabled (cached per agent session)."""
-    return credits_notices_enabled()
+        logger.debug("after_llm_response hook error: %s", e)
 
 
 def register(ctx) -> None:

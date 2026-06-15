@@ -2258,12 +2258,18 @@ class AIAgent:
                 if msg.get("role") == "assistant" and msg.get("content"):
                     msg = dict(msg)
                     msg["content"] = self._clean_session_content(msg["content"])
-                # Defence-in-depth: redact credentials from every message
-                # content before persistence. Catches PATs / API keys / Bearer
-                # tokens that may have leaked into assistant responses, tool
-                # output, or user paste. Respects HERMES_REDACT_SECRETS via
-                # redact_sensitive_text — no-op when disabled. (#19798, #19845)
-                if "content" in msg:
+                # Hook: before_persist_message — plugins can transform/redact
+                # message content before persistence. Redactor plugin hooks here
+                # to strip credentials (PATs, API keys, Bearer tokens) from
+                # messages before they reach state.db.
+                from hermes_cli.plugins import invoke_hook as _invoke_hook
+                for _hook_result in _invoke_hook(
+                    "before_persist_message", agent=self, msg=msg,
+                ):
+                    if isinstance(_hook_result, dict):
+                        msg = _hook_result
+                # Fallback: apply built-in secret redaction if no plugin handled it
+                if "content" in msg and not getattr(msg, "_redacted", False):
                     msg = dict(msg)
                     msg["content"] = self._redact_message_content(msg.get("content"))
                 cleaned.append(msg)
@@ -2291,6 +2297,8 @@ class AIAgent:
                 "platform": self.platform,
                 "session_start": self.session_start.isoformat(),
                 "last_updated": datetime.now().isoformat(),
+                # Hook: before_persist_system_prompt — plugins can redact
+                # credentials from the system prompt before persistence.
                 "system_prompt": redact_sensitive_text(self._cached_system_prompt or ""),
                 "tools": self.tools or [],
                 "message_count": len(cleaned),
@@ -2734,16 +2742,15 @@ class AIAgent:
         """
         self._last_activity_ts = time.time()
         self._last_activity_desc = desc
-        if os.environ.get("HERMES_KANBAN_TASK"):
-            try:
-                from tools.kanban_tools import heartbeat_current_worker_from_env
-                heartbeat_current_worker_from_env()
-            except Exception:
-                # Never let the bridge break the agent loop.  The function
-                # already swallows exceptions internally; this outer guard
-                # covers import-time failures (kanban_tools unavailable,
-                # etc.) on niche deployment surfaces.
-                pass
+        # Hook: post_activity — plugins can react to agent activity.
+        # Kanban plugin hooks here to bridge worker heartbeat to the board.
+        from hermes_cli.plugins import invoke_hook as _invoke_hook_pa
+        _invoke_hook_pa(
+            "post_activity",
+            agent=self,
+            desc=desc,
+            kanban_task=os.environ.get("HERMES_KANBAN_TASK", ""),
+        )
 
     def _capture_rate_limits(self, http_response: Any) -> None:
         """Parse x-ratelimit-* headers from an HTTP response and cache the state.
@@ -2845,6 +2852,18 @@ class AIAgent:
                 ("%.0fs" % state.age_seconds) if state.age_seconds != float("inf") else "n/a",
                 (" · disabled=%s" % state.disabled_reason) if state.disabled_reason else "",
             )
+
+        # Hook: after_llm_response — plugins can evaluate credits notices
+        # after each LLM response. Credits plugin hooks here.
+        from hermes_cli.plugins import invoke_hook as _invoke_hook_llr
+        _invoke_hook_llr(
+            "after_llm_response",
+            agent=self,
+            state=getattr(self, "_credits_state", None),
+            latch=getattr(self, "_credits_latch", None),
+            model=getattr(self, "model", ""),
+            base_url=getattr(self, "base_url", ""),
+        )
 
         # Threshold notices — shared with the cold-start seed (see _emit_credits_notices).
         self._emit_credits_notices()

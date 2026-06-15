@@ -4,7 +4,7 @@ plugins/redactor — Secret redaction plugin for Autolycus
 Hooks into run_agent.py via before_persist_message to redact credentials
 from messages before they are saved to state.db.
 
-Hook: before_persist_message
+Hooks: before_persist_message, before_persist_system_prompt
 """
 
 from __future__ import annotations
@@ -55,19 +55,29 @@ def redact_message_content(content: Any) -> Any:
     return content
 
 
-def before_persist_message(msg: Dict[str, Any]) -> Dict[str, Any]:
+def before_persist_message(**kwargs) -> Optional[Dict[str, Any]]:
     """Hook: redact credentials from message before persistence.
     
-    Called by run_agent.py before writing messages to state.db.
-    Modifies the message dict in-place and returns it.
+    Called by run_agent.py with kwargs: agent, msg.
+    Returns modified msg dict or None.
     """
-    if "content" in msg:
-        msg["content"] = redact_message_content(msg["content"])
+    msg = kwargs.get("msg")
+    if msg is None or "content" not in msg:
+        return None
+    msg["content"] = redact_message_content(msg["content"])
+    msg["_redacted"] = True  # mark so fallback knows
     return msg
 
 
-def before_persist_system_prompt(prompt: str) -> str:
-    """Hook: redact credentials from system prompt before persistence."""
+def before_persist_system_prompt(**kwargs) -> Optional[str]:
+    """Hook: redact credentials from system prompt before persistence.
+    
+    Called by run_agent.py with kwargs: agent, prompt.
+    Returns modified prompt string or None.
+    """
+    prompt = kwargs.get("prompt")
+    if prompt is None:
+        return None
     return redact_sensitive_text(prompt)
 
 

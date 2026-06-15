@@ -167,6 +167,13 @@ VALID_HOOKS: Set[str] = {
     #   choice: "once" | "session" | "always" | "deny" | "timeout"
     "pre_approval_request",
     "post_approval_response",
+    # Message persistence hooks — fired by run_agent.py before writing to state.db
+    "before_persist_message",
+    "before_persist_system_prompt",
+    # LLM response hooks — fired after each API response
+    "after_llm_response",
+    # Agent activity hooks — fired on tool dispatch / message handling
+    "post_activity",
 }
 
 ENTRY_POINTS_GROUP = "hermes_agent.plugins"
