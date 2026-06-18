@@ -440,7 +440,6 @@ class TestMemoryToolDispatcher:
 
 
 # =========================================================================
-<<<<<<< HEAD
 # External drift guard (#26045)
 #
 # An external writer — patch tool, shell append, manual edit, or sister
@@ -651,7 +650,6 @@ class TestLoadTimeSnapshotSanitization:
         # Block marker appears exactly once, not nested
         assert snapshot.count("[BLOCKED:") == 1
         assert "Clean fact" in snapshot
-=======
 # Temporal awareness — _group_by_age
 # =========================================================================
 
@@ -738,4 +736,3 @@ class TestUserProfileTemporal:
         assert "обновлено" in block
         assert "сек" in block or "мин" in block or "ч." in block or "дн." in block
 
->>>>>>> d35c3ed64 (feat: temporal awareness — MEMORY.md с группировкой по возрасту)

@@ -2657,11 +2657,7 @@ DEFAULT_CONFIG = {
 
 
     # Config schema version - bump this when adding new required fields
-<<<<<<< HEAD
     "_config_version": 30,
-=======
-    "_config_version": 24,
->>>>>>> eb6f34231 (feat: findings_to_wiki default-enabled + hipporag-lite in-the-box)
 
     # Plugins enabled by default.
     # Standalone bundled plugins need to appear here to auto-load.

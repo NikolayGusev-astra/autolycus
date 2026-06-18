@@ -14,13 +14,8 @@ Provides subcommands for:
 import os
 import sys
 
-<<<<<<< HEAD
 __version__ = "0.16.0"
 __release_date__ = "2026.6.5"
-=======
-__version__ = "0.1.2"
-__release_date__ = "2026.5.15"
->>>>>>> 7026ed66f (v0.1.2: SBL + Ultra Governance + RTK v2 + Tacops + Doc Session + ContextWriter)
 
 
 def _ensure_utf8():

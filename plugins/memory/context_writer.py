@@ -25,8 +25,6 @@ def _get_wiki_dir() -> Path:
     return wiki
 
 
-<<<<<<< HEAD
-=======
 def _load_cw_config() -> dict:
     """Читает конфиг context_writer из config.yaml."""
     try:
@@ -78,7 +76,6 @@ def _find_rg() -> str | None:
     return None
 
 
->>>>>>> 63e64287a (context_writer: integrate with tacops portable toolchain for rg)
 def _format_turn(turn_number: int, user_msg: str, assistant_msg: str,
                  tools: list[dict] | None = None) -> str:
     """Форматировать один turn для записи в файл."""

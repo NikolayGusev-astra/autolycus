@@ -3957,7 +3957,6 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
         # Calculate session cost
         try:
-<<<<<<< HEAD
             cost_r = estimate_usage_cost(
                 model_name,
                 CanonicalUsage(
@@ -3975,22 +3974,6 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 snapshot["session_cost"] = None
         except Exception:
             snapshot["session_cost"] = None
-=======
-            total_tokens = snapshot.get("session_total_tokens", 0) or 0
-            model_name = getattr(agent, "model", "") or ""
-            # Rough cost estimate: $0.005 per 1K tokens (adjustable)
-            cost_per_1k = 0.005
-            if "deepseek" in model_name.lower():
-                cost_per_1k = 0.00027  # DeepSeek V3: $0.27/M tokens
-            elif "claude" in model_name.lower():
-                cost_per_1k = 0.003  # Claude Sonnet: $3/M tokens
-            elif "gpt-4" in model_name.lower():
-                cost_per_1k = 0.0025  # GPT-4o: $2.5/M tokens
-            cost_usd = (total_tokens / 1000) * cost_per_1k
-            snapshot["session_cost_usd"] = round(cost_usd, 4)
-        except Exception:
-            snapshot["session_cost_usd"] = 0.0
->>>>>>> 714ccd477 (fix: restore lost autolycus features after upstream merge)
 
         compressor = getattr(agent, "context_compressor", None)
         if compressor:
@@ -4299,12 +4282,9 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 percent_label = f"{percent}%" if percent is not None else "--"
                 if width < 76:
                     compressions = snapshot.get("compressions", 0)
-<<<<<<< HEAD
                     bg_count = snapshot.get("active_background_tasks", 0)
                     bg_proc_count = snapshot.get("active_background_processes", 0)
-=======
                     cost_val = snapshot.get("session_cost")
->>>>>>> 75b06ebbd (fix: add session cost to _get_status_bar_fragments (both narrow and wide terminals))
                     frags = [
                         ("class:status-bar", " ⚕ "),
                         ("class:status-bar-strong", snapshot["model_short"]),
@@ -4341,12 +4321,9 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
                     bar_style = self._status_bar_context_style(percent)
                     compressions = snapshot.get("compressions", 0)
-<<<<<<< HEAD
                     bg_count = snapshot.get("active_background_tasks", 0)
                     bg_proc_count = snapshot.get("active_background_processes", 0)
-=======
                     cost_val = snapshot.get("session_cost")
->>>>>>> 75b06ebbd (fix: add session cost to _get_status_bar_fragments (both narrow and wide terminals))
                     frags = [
                         ("class:status-bar", " ⚕ "),
                         ("class:status-bar-strong", snapshot["model_short"]),
@@ -8522,7 +8499,6 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             # Console quietness is enforced by hermes_logging not
             # installing a console StreamHandler in non-verbose mode.
 
-<<<<<<< HEAD
     def _print_nous_credits_block(self) -> bool:
         """Print the Nous credits magnitudes + monthly-grant gauge when a Nous account
         is logged in. Returns True if it printed anything.
@@ -8624,7 +8600,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 print(f"  Top-up URL: {view.topup_url}")
         else:
             print("  🟡 Cancelled. No credits added.")
-=======
+
     def _show_token_log(self, cmd_original: str = ""):
         """Show per-call token log for the current session (/token-log, /tokens)."""
         if not self.agent:
@@ -8663,7 +8639,6 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             model = entry.get("model", agent.model)[:30]
             print(f"  {i:>4}  {inp:>10,}  {out:>10,}  {tot:>10,}  {model}")
         print(f"  {'─' * 60}")
->>>>>>> 714ccd477 (fix: restore lost autolycus features after upstream merge)
 
     def _show_insights(self, command: str = "/insights"):
         """Show usage insights and analytics from session history."""
