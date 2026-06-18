@@ -197,6 +197,8 @@ from agent.tool_dispatch_helpers import (
     _trajectory_normalize_msg,  # noqa: F401  # re-exported for tests that `from run_agent import _trajectory_normalize_msg`
 )
 from utils import atomic_json_write, base_url_host_matches, base_url_hostname, is_truthy_value, model_forces_max_completion_tokens
+# RTK v2 — pre-turn injection + circuit breaker
+from plugins.rtk.signal import pre_turn as _rtk_pre_turn
 
 
 

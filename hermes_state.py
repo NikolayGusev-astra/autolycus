@@ -566,7 +566,8 @@ CREATE TABLE IF NOT EXISTS messages (
     codex_message_items TEXT,
     platform_message_id TEXT,
     observed INTEGER DEFAULT 0,
-    active INTEGER NOT NULL DEFAULT 1
+    active INTEGER NOT NULL DEFAULT 1,
+    rtk_metadata TEXT
 );
 
 CREATE TABLE IF NOT EXISTS state_meta (
