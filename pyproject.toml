@@ -6,15 +6,9 @@ requires = ["setuptools>=77.0,<83"]
 build-backend = "setuptools.build_meta"
 
 [project]
-<<<<<<< HEAD
-name = "hermes-agent"
-version = "0.16.0"
-description = "The self-improving AI agent — creates skills from experience, improves them during use, and runs anywhere"
-=======
 name = "autolycus-agent"
-version = "0.1.2"
+version = "0.16.0"
 description = "Enterprise AI Assistant for Business"
->>>>>>> 7026ed66f (v0.1.2: SBL + Ultra Governance + RTK v2 + Tacops + Doc Session + ContextWriter)
 readme = "README.md"
 # Upper bound is load-bearing, not cosmetic. uv resolves the project's
 # Python from `requires-python`, and an inherited `UV_PYTHON` env var (or a
