@@ -74,7 +74,10 @@ def get_hermes_home() -> Path:
     if val:
         return Path(val)
 
-    # Guard: if a non-default profile is sticky-active, warn once that
+    # Autolycus fork: AUTOLYCUS_HOME takes precedence over default ~/.hermes
+    auto_val = os.environ.get("AUTOLYCUS_HOME", "").strip()
+    if auto_val:
+        return Path(auto_val)
     # the fallback to the default profile is almost certainly wrong.
     global _profile_fallback_warned
     if not _profile_fallback_warned:
