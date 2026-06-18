@@ -3963,6 +3963,30 @@ def run_conversation(
                     except Exception:
                         pass
 
+                # ── Autolycus P6: ContextWriter — пишем turn в raw-wiki ──
+                try:
+                    from plugins.memory.context_writer import ContextWriter
+                    if not hasattr(agent, '_context_writer'):
+                        agent._context_writer = ContextWriter()
+                    user_msg = ""
+                    for m in reversed(messages[:-1]):
+                        if m.get("role") == "user" and "\nUser:\n" not in m.get("content", ""):
+                            user_msg = m.get("content", "")[:1000]
+                            break
+                    assistant_content = getattr(assistant_message, 'content', '') or ""
+                    assistant_content = str(assistant_content)[:2000]
+                    tools_data = [{"name": tc.function.name} for tc in assistant_message.tool_calls]
+                    agent._context_writer.sync_turn(
+                        session_id=agent.session_id or "default",
+                        turn_number=getattr(agent, '_turn_counter', 0),
+                        user_msg=user_msg,
+                        assistant_msg=assistant_content,
+                        tools=tools_data,
+                    )
+                    agent._turn_counter = getattr(agent, '_turn_counter', 0) + 1
+                except Exception:
+                    pass  # ContextWriter не должен ломать agent loop
+
                 agent._execute_tool_calls(assistant_message, messages, effective_task_id, api_call_count)
 
                 if agent._tool_guardrail_halt_decision is not None:
