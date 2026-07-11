@@ -113,10 +113,9 @@ jobs:
       - name: Commit and push (strip upstream .github)
         if: steps.count.outputs.commits != '0'
         run: |
-          # Never let upstream overwrite our CI. Restore .github from origin/main,
-          # then commit and push.
-          git fetch origin main
-          git checkout origin/main -- .github 2>/dev/null || true
+          # Never let upstream overwrite our CI. HEAD is still pre-merge main
+          # (we used --no-commit), so this restores our own .github tree.
+          git checkout HEAD -- .github 2>/dev/null || true
           git add -A
           git commit --no-edit 2>/dev/null || echo "Nothing to commit"
           git push origin main
