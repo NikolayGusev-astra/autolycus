@@ -10,8 +10,9 @@ on:
         type: boolean
         default: false
 
-# GITHUB_TOKEN (app) cannot push workflow-file changes by design.
-# We therefore never merge upstream's .github/ into our history.
+# GITHUB_TOKEN (GitHub App) cannot push commits that touch workflow files.
+# After the one-time bootstrap (main reset to upstream/main), the daily push is a
+# fast-forward where .github/ is unchanged vs the server, so it is allowed.
 permissions:
   contents: write
 
@@ -34,9 +35,9 @@ jobs:
           git config user.name "Autolycus Sync Bot"
           git config user.email "bot@autolycus-agent.ru"
 
-      - name: Save adapted files before merge
+      - name: Save adapted files before reset
         run: |
-          # These files are adapted for Autolycus — save them before upstream overwrites
+          # These files are adapted for Autolycus — save them before we reset to upstream.
           mkdir -p /tmp/autolycus-save/hermes_cli /tmp/autolycus-save/acp_adapter
           for f in README.md SECURITY.md AGENTS.md \
             hermes_constants.py cli.py pyproject.toml \
@@ -53,7 +54,7 @@ jobs:
         run: |
           # Public repo → anonymous fetch. Disable any credential helper so the
           # runner's GITHUB_TOKEN is never offered to a foreign repository.
-          git -c credential.helper= remote add upstream https://github.com/NousResearch/hermes-agent.git
+          git -c credential.helper= remote add upstream https://github.com/NousResearch/hermes-agent.git || true
           git -c credential.helper= fetch upstream main
 
       - name: Count new commits
@@ -67,18 +68,14 @@ jobs:
         if: steps.count.outputs.commits == '0'
         run: echo "Already up to date, nothing to merge"
 
-      - name: Merge upstream (no commit yet)
+      - name: Reset to upstream, reapply Autolycus adaptations
         if: steps.count.outputs.commits != '0'
-        id: merge
         run: |
-          # Merge but do NOT auto-commit. We strip .github/ before committing.
-          git merge --no-ff --no-commit upstream/main --no-edit 2>&1 || echo "MERGE_CONFLICT" >> .merge_status
-          echo "Merge staged"
+          # Hard-reset local main to upstream. This avoids carrying 3175 commit
+          # objects in the push (the thing that broke GITHUB_TOKEN before).
+          git reset --hard upstream/main
 
-      - name: Resolve conflicts (prefer upstream, keep Autolycus adaptations)
-        if: steps.count.outputs.commits != '0'
-        run: |
-          # 1) Restore Autolycus-adapted versions of protected files
+          # 1) Restore Autolycus-adapted files (protected)
           for f in README.md SECURITY.md AGENTS.md \
             hermes_constants.py cli.py pyproject.toml \
             hermes_cli/__init__.py hermes_cli/banner.py \
@@ -90,33 +87,11 @@ jobs:
               echo "✓ Restored Autolycus adaptation: $f"
             fi
           done
-          # 2) Any remaining conflicted file → take upstream version
-          UNRESOLVED=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
-          if [ -n "$UNRESOLVED" ]; then
-            echo "Resolving in favor of upstream:"
-            echo "$UNRESOLVED"
-            for f in $UNRESOLVED; do
-              git checkout upstream/main -- "$f" 2>/dev/null || git checkout --theirs -- "$f"
-              git add "$f"
-            done
-          else
-            echo "No unresolved conflicts."
-          fi
-          rm -f .merge_status
 
-      - name: Apply autolycus rebranding
-        if: steps.count.outputs.commits != '0' && !cancelled()
-        run: |
-          bash scripts/apply-autolycus-rebrand.sh
-          echo "Rebranding applied"
-
-      - name: Commit and push (strip upstream .github)
-        if: steps.count.outputs.commits != '0'
-        run: |
-          # Never let upstream overwrite our CI. HEAD is still pre-merge main
-          # (we used --no-commit), so reset .github fully to our own version.
-          git restore --staged --worktree .github 2>/dev/null || true
-          git checkout HEAD -- .github 2>/dev/null || true
+          # 2) Keep OUR .github/ (our CI) — never let upstream clobber it.
+          # origin/main already holds our .github, identical to the server.
+          git fetch origin main
+          git checkout origin/main -- .github 2>/dev/null || true
           git add -A
           git commit --no-edit 2>/dev/null || echo "Nothing to commit"
           git push origin main
