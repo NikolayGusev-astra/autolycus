@@ -118,8 +118,10 @@ jobs:
         run: |
           # Keep our own CI workflows — never let upstream overwrite .github/
           # (GitHub App token cannot push workflow changes anyway, and we don't
-          # want upstream's CI to clobber Autolycus's). ORIG_HEAD = main before merge.
-          git checkout ORIG_HEAD -- .github 2>/dev/null || true
+          # want upstream's CI to clobber Autolycus's). origin/main holds our
+          # current .github, before any upstream merge touched it.
+          git fetch origin main
+          git checkout origin/main -- .github 2>/dev/null || true
           git add -A
           git commit --no-edit 2>/dev/null || true
           git push origin main
