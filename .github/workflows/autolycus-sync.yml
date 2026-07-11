@@ -19,7 +19,7 @@ jobs:
       issues: write
     steps:
       - name: Checkout autolycus
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           # token omitted → uses the built-in GITHUB_TOKEN (always valid,
@@ -34,22 +34,12 @@ jobs:
       - name: Save adapted files before merge
         run: |
           # These files are adapted for Autolycus — save them before upstream overwrites
-          mkdir -p /tmp/autolycus-save/hermes_cli /tmp/autolycus-save/acp_adapter /tmp/autolycus-save/install.sh
+          mkdir -p /tmp/autolycus-save
           for f in README.md SECURITY.md AGENTS.md \
-            hermes_constants.py cli.py pyproject.toml; do
-            if [ -f "$f" ]; then
-              cp "$f" "/tmp/autolycus-save/$f"
-              echo "✓ Saved $f"
-            fi
-          done
-          for f in hermes_cli/__init__.py hermes_cli/banner.py \
-            hermes_cli/main.py hermes_cli/setup.py; do
-            if [ -f "$f" ]; then
-              cp "$f" "/tmp/autolycus-save/$f"
-              echo "✓ Saved $f"
-            fi
-          done
-          for f in acp_adapter/server.py install.sh; do
+            hermes_constants.py cli.py pyproject.toml \
+            hermes_cli/__init__.py hermes_cli/banner.py \
+            hermes_cli/main.py hermes_cli/setup.py \
+            acp_adapter/server.py install.sh; do
             if [ -f "$f" ]; then
               cp "$f" "/tmp/autolycus-save/$f"
               echo "✓ Saved $f"
@@ -67,7 +57,7 @@ jobs:
         id: count
         run: |
           COUNT=$(git rev-list --count main..upstream/main 2>/dev/null || echo 0)
-          echo "commits=$COUNT" >> $GITHUB_OUTPUT
+          echo "commits=$COUNT" >> "$GITHUB_OUTPUT"
           echo "New upstream commits: $COUNT"
 
       - name: No updates
@@ -78,84 +68,48 @@ jobs:
         if: steps.count.outputs.commits != '0'
         id: merge
         run: |
-          # Merge upstream, prefer upstream version on conflicts for non-protected files
-          git merge --no-ff upstream/main --no-edit 2>&1 || echo "CONFLICT" >> .merge_status
-          echo "Merge completed"
+          # Merge upstream. Conflicts are expected and resolved in the next step.
+          git merge --no-ff upstream/main --no-edit 2>&1 || echo "MERGE_NEEDS_RESOLVE" >> .merge_status
+          echo "Merge attempted"
 
-      - name: Restore adapted files
+      - name: Resolve conflicts (prefer upstream, keep Autolycus adaptations)
         if: steps.count.outputs.commits != '0'
         run: |
-          # Restore Autolycus-adapted versions (discard upstream overwrites)
+          # 1) Restore Autolycus-adapted versions of protected files
           for f in README.md SECURITY.md AGENTS.md \
-            hermes_constants.py cli.py pyproject.toml; do
+            hermes_constants.py cli.py pyproject.toml \
+            hermes_cli/__init__.py hermes_cli/banner.py \
+            hermes_cli/main.py hermes_cli/setup.py \
+            acp_adapter/server.py install.sh; do
             if [ -f "/tmp/autolycus-save/$f" ]; then
               cp "/tmp/autolycus-save/$f" "$f"
               git add "$f"
-              echo "✓ Restored $f (autolycus adaptation preserved)"
+              echo "✓ Restored Autolycus adaptation: $f"
             fi
           done
-          for f in hermes_cli/__init__.py hermes_cli/banner.py \
-            hermes_cli/main.py hermes_cli/setup.py; do
-            if [ -f "/tmp/autolycus-save/$f" ]; then
-              cp "/tmp/autolycus-save/$f" "$f"
+          # 2) Any remaining conflicted file → take upstream version
+          UNRESOLVED=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
+          if [ -n "$UNRESOLVED" ]; then
+            echo "Resolving in favor of upstream:"
+            echo "$UNRESOLVED"
+            for f in $UNRESOLVED; do
+              git checkout upstream/main -- "$f" 2>/dev/null || git checkout --theirs -- "$f"
               git add "$f"
-              echo "✓ Restored $f (autolycus adaptation preserved)"
-            fi
-          done
-          for f in acp_adapter/server.py install.sh; do
-            if [ -f "/tmp/autolycus-save/$f" ]; then
-              cp "/tmp/autolycus-save/$f" "$f"
-              git add "$f"
-              echo "✓ Restored $f (autolycus adaptation preserved)"
-            fi
-          done
-
-      - name: Check for merge conflicts (besides protected files)
-        if: steps.count.outputs.commits != '0'
-        run: |
-          if [ -f .merge_status ]; then
-            UNRESOLVED=$(git diff --name-only --diff-filter=U 2>/dev/null | grep -v -E '^(README\.md|SECURITY\.md|AGENTS\.md|hermes_constants\.py|cli\.py|pyproject\.toml|hermes_cli/__init__\.py|hermes_cli/banner\.py|hermes_cli/main\.py|hermes_cli/setup\.py|acp_adapter/server\.py|install\.sh)$' || true)
-            if [ -n "$UNRESOLVED" ]; then
-              echo "::warning::Merge conflicts in non-protected files:"
-              echo "$UNRESOLVED"
-              echo "CONFLICT_REMAINS=true" >> $GITHUB_ENV
-            else
-              rm -f .merge_status
-              echo "All remaining conflicts are in protected files (already restored)"
-            fi
+            done
+          else
+            echo "No unresolved conflicts."
           fi
+          rm -f .merge_status
+          git commit --no-edit 2>/dev/null || echo "Merge already committed"
 
       - name: Apply autolycus rebranding
-        if: steps.count.outputs.commits != '0' && !cancelled() && env.CONFLICT_REMAINS != 'true'
-        id: rebrand
+        if: steps.count.outputs.commits != '0' && !cancelled()
         run: |
           bash scripts/apply-autolycus-rebrand.sh
           echo "Rebranding applied"
-
-      - name: Create conflict issue
-        if: failure() && steps.count.outputs.commits != '0'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          EXISTS=$(gh issue list --label sync-conflict --json number --jq 'length')
-          if [ "$EXISTS" -eq 0 ]; then
-            gh issue create \
-              --title "Sync conflict: autolycus patches need manual resolution" \
-              --body "Auto-merge succeeded but patches failed. Check: bash patches/apply.sh" \
-              --label sync-conflict
-            echo "Conflict issue created"
-          else
-            echo "Issue already exists — skipping"
-          fi
+          git add -A
+          git commit --no-edit 2>/dev/null || echo "No rebranding changes to commit"
 
       - name: Push
-        if: success() && steps.count.outputs.commits != '0'
+        if: steps.count.outputs.commits != '0'
         run: git push origin main
-
-      - name: Push conflict branch
-        if: failure() && steps.count.outputs.commits != '0'
-        run: |
-          BRANCH="sync/upstream-$(date +%Y%m%d)"
-          git checkout -b "$BRANCH"
-          git push origin "$BRANCH"
-          echo "Pushed to $BRANCH — create PR after resolving"
