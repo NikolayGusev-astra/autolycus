@@ -114,7 +114,8 @@ jobs:
         if: steps.count.outputs.commits != '0'
         run: |
           # Never let upstream overwrite our CI. HEAD is still pre-merge main
-          # (we used --no-commit), so this restores our own .github tree.
+          # (we used --no-commit), so reset .github fully to our own version.
+          git restore --staged --worktree .github 2>/dev/null || true
           git checkout HEAD -- .github 2>/dev/null || true
           git add -A
           git commit --no-edit 2>/dev/null || echo "Nothing to commit"
