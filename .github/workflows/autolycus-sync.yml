@@ -56,8 +56,8 @@ jobs:
 
       - name: Fetch upstream
         run: |
-          git remote add upstream https://github.com/NousResearch/hermes-agent.git
-          git fetch upstream main
+          git -c credential.helper= remote add upstream https://github.com/NousResearch/hermes-agent.git
+          git -c credential.helper= fetch upstream main
 
       - name: Count new commits
         id: count
@@ -129,7 +129,7 @@ jobs:
           echo "Rebranding applied"
 
       - name: Create conflict issue
-        if: failure() && steps.patches.conclusion == 'failure'
+        if: failure() && steps.count.outputs.commits != '0'
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
