@@ -34,7 +34,7 @@ jobs:
       - name: Save adapted files before merge
         run: |
           # These files are adapted for Autolycus — save them before upstream overwrites
-          mkdir -p /tmp/autolycus-save
+          mkdir -p /tmp/autolycus-save/hermes_cli /tmp/autolycus-save/acp_adapter
           for f in README.md SECURITY.md AGENTS.md \
             hermes_constants.py cli.py pyproject.toml \
             hermes_cli/__init__.py hermes_cli/banner.py \
