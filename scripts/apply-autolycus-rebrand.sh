@@ -3,7 +3,7 @@
 # This replaces the old patch-based approach with direct sed replacements
 set -e
 
-cd "$(dirname "$0")"
+cd "$(git rev-parse --show-toplevel 2>/dev/null || dirname "$0")"
 
 echo "=== Applying Autolycus rebranding ==="
 echo "Base: $(git rev-parse HEAD)"
