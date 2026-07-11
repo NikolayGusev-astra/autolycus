@@ -22,7 +22,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GH_PAT }}
+          # token omitted → uses the built-in GITHUB_TOKEN (always valid,
+          # has contents:write per the job permissions above).
+          # The previous secrets.GH_PAT was dead/empty and broke auth.
 
       - name: Configure git
         run: |
@@ -56,6 +58,8 @@ jobs:
 
       - name: Fetch upstream
         run: |
+          # Public repo → anonymous fetch. Disable any credential helper so the
+          # runner's GITHUB_TOKEN is never offered to a foreign repository.
           git -c credential.helper= remote add upstream https://github.com/NousResearch/hermes-agent.git
           git -c credential.helper= fetch upstream main
 
@@ -131,7 +135,7 @@ jobs:
       - name: Create conflict issue
         if: failure() && steps.count.outputs.commits != '0'
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           EXISTS=$(gh issue list --label sync-conflict --json number --jq 'length')
           if [ "$EXISTS" -eq 0 ]; then
