@@ -12,7 +12,6 @@ on:
 
 permissions:
   contents: write
-  workflows: write
 
 jobs:
   sync:
@@ -116,4 +115,11 @@ jobs:
 
       - name: Push
         if: steps.count.outputs.commits != '0'
-        run: git push origin main
+        run: |
+          # Keep our own CI workflows — never let upstream overwrite .github/
+          # (GitHub App token cannot push workflow changes anyway, and we don't
+          # want upstream's CI to clobber Autolycus's). ORIG_HEAD = main before merge.
+          git checkout ORIG_HEAD -- .github 2>/dev/null || true
+          git add -A
+          git commit --no-edit 2>/dev/null || true
+          git push origin main
