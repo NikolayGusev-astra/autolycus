@@ -1355,9 +1355,19 @@ def _build_snapshot_entry(
     if isinstance(platforms, str):
         platforms = [platforms]
 
+    # DCD: domain/collection из frontmatter (fallback к category из пути)
+    domain = str(frontmatter.get("domain", ""))
+    collection = str(frontmatter.get("collection", ""))
+    if not domain:
+        domain = category
+    if not collection:
+        collection = skill_name
+
     return {
         "skill_name": skill_name,
         "category": category,
+        "domain": domain,
+        "collection": collection,
         "frontmatter_name": str(frontmatter.get("name", skill_name)),
         "description": description,
         "platforms": [str(p).strip() for p in platforms if str(p).strip()],
@@ -1496,7 +1506,8 @@ def build_skills_system_prompt(
     # ── Layer 2: disk snapshot ────────────────────────────────────────
     snapshot = _load_skills_snapshot(skills_dir)
 
-    skills_by_category: dict[str, list[tuple[str, str]]] = {}
+    # DCD: группировка по ключу "domain/collection" (или "category" если нет frontmatter)
+    skills_by_dc: dict[str, list[tuple[str, str]]] = {}
     category_descriptions: dict[str, str] = {}
 
     if snapshot is not None:
@@ -1505,6 +1516,8 @@ def build_skills_system_prompt(
             if not isinstance(entry, dict):
                 continue
             skill_name = entry.get("skill_name") or ""
+            domain = entry.get("domain") or ""
+            collection = entry.get("collection") or skill_name
             category = entry.get("category") or "general"
             frontmatter_name = entry.get("frontmatter_name") or skill_name
             platforms = entry.get("platforms") or []
@@ -1518,7 +1531,13 @@ def build_skills_system_prompt(
                 available_toolsets,
             ):
                 continue
-            skills_by_category.setdefault(category, []).append(
+            # DCD: группировка по ключу "domain/collection"
+            fm_domain = entry.get("domain") or ""
+            fm_collection = entry.get("collection") or ""
+            dcd_key = f"{fm_domain}/{fm_collection}" if fm_domain else entry.get("category") or "general"
+            if dcd_key not in skills_by_dc:
+                skills_by_dc[dcd_key] = []
+            skills_by_dc[dcd_key].append(
                 (frontmatter_name, entry.get("description", ""))
             )
         category_descriptions = {
@@ -1543,7 +1562,13 @@ def build_skills_system_prompt(
                 available_toolsets,
             ):
                 continue
-            skills_by_category.setdefault(entry["category"], []).append(
+            # DCD: используем domain/collection как категорию
+            fm_domain = str(frontmatter.get("domain", ""))
+            fm_collection = str(frontmatter.get("collection", ""))
+            dcd_key = f"{fm_domain}/{fm_collection}" if fm_domain else entry["category"]
+            if dcd_key not in skills_by_dc:
+                skills_by_dc[dcd_key] = []
+            skills_by_dc[dcd_key].append(
                 (entry["frontmatter_name"], entry["description"])
             )
 
@@ -1570,11 +1595,11 @@ def build_skills_system_prompt(
 
     # ── External skill directories ─────────────────────────────────────
     # Scan external dirs directly (no snapshot caching — they're read-only
-    # and typically small).  Local skills already in skills_by_category take
+    # and typically small).  Local skills already in skills_by_dc take
     # precedence: we track seen names and skip duplicates from external dirs.
     seen_skill_names: set[str] = set()
-    for cat_skills in skills_by_category.values():
-        for name, _desc in cat_skills:
+    for dcd_key, skills in skills_by_dc.items():
+        for name, _desc in skills:
             seen_skill_names.add(name)
 
     for ext_dir in external_dirs:
@@ -1599,7 +1624,11 @@ def build_skills_system_prompt(
                 ):
                     continue
                 seen_skill_names.add(frontmatter_name)
-                skills_by_category.setdefault(entry["category"], []).append(
+                # DCD: external skills → domain/collection
+                fm_domain = str(frontmatter.get("domain", ""))
+                fm_collection = str(frontmatter.get("collection", ""))
+                dcd_key = f"{fm_domain}/{fm_collection}" if fm_domain else entry["category"]
+                skills_by_category.setdefault(dcd_key, []).append(
                     (frontmatter_name, entry["description"])
                 )
             except Exception as e:
@@ -1629,7 +1658,7 @@ def build_skills_system_prompt(
     # segment so nested categories ("social-media/twitter") are demoted with
     # their parent.
     demoted = frozenset(
-        cat for cat in skills_by_category
+        cat for cat in skills_by_dc
         if cat.split("/", 1)[0] in (compact_categories or frozenset())
     )
 
@@ -1641,30 +1670,70 @@ def build_skills_system_prompt(
             "normally and load with skill_view(name) as usual.)"
         )
 
-    if not skills_by_category:
+    if not skills_by_dc:
         result = ""
     else:
         index_lines = []
-        for category in sorted(skills_by_category.keys()):
-            # Deduplicate and sort skills within each category
-            seen = set()
-            if category in demoted:
-                names = sorted({name for name, _ in skills_by_category[category]})
-                index_lines.append(f"  {category} [names only]: {', '.join(names)}")
-                continue
-            cat_desc = category_descriptions.get(category, "")
-            if cat_desc:
-                index_lines.append(f"  {category}: {cat_desc}")
+        # DCD: группируем по домену (первый сегмент ключа)
+        domains_order = []
+        domain_collections: dict[str, dict[str, list]] = {}
+        for dcd_key, skills in skills_by_dc.items():
+            if "/" in dcd_key:
+                domain, collection = dcd_key.split("/", 1)
             else:
-                index_lines.append(f"  {category}:")
-            for name, desc in sorted(skills_by_category[category], key=lambda x: x[0]):
-                if name in seen:
-                    continue
-                seen.add(name)
-                if desc:
-                    index_lines.append(f"    - {name}: {desc}")
-                else:
-                    index_lines.append(f"    - {name}")
+                domain = dcd_key
+                collection = ""
+            if domain not in domain_collections:
+                domains_order.append(domain)
+                domain_collections[domain] = {}
+            if collection not in domain_collections[domain]:
+                domain_collections[domain][collection] = []
+            domain_collections[domain][collection].extend(skills)
+        
+        for domain in sorted(domains_order):
+            collections = domain_collections[domain]
+            if len(collections) == 1 and "" in collections:
+                # Одна коллекция без подразделов — плоский список
+                skills = collections[""]
+                seen = set()
+                index_lines.append(f"  ## {domain}")
+                for name, desc in sorted(skills, key=lambda x: x[0]):
+                    if name in seen:
+                        continue
+                    seen.add(name)
+                    if desc:
+                        index_lines.append(f"    - {name}: {desc}")
+                    else:
+                        index_lines.append(f"    - {name}")
+            else:
+                # Иерархия: domain → collection → skills
+                index_lines.append(f"  ## {domain}")
+                for collection in sorted(collections.keys()):
+                    if collection == "":
+                        continue
+                    skills = collections[collection]
+                    seen = set()
+                    index_lines.append(f"    ### {collection}")
+                    for name, desc in sorted(skills, key=lambda x: x[0]):
+                        if name in seen:
+                            continue
+                        seen.add(name)
+                        if desc:
+                            index_lines.append(f"      - {name}: {desc}")
+                        else:
+                            index_lines.append(f"      - {name}")
+                # Если есть навыки без коллекции — добавляем их в конец домена
+                if "" in collections:
+                    skills = collections[""]
+                    seen = set()
+                    for name, desc in sorted(skills, key=lambda x: x[0]):
+                        if name in seen:
+                            continue
+                        seen.add(name)
+                        if desc:
+                            index_lines.append(f"    - {name}: {desc}")
+                        else:
+                            index_lines.append(f"    - {name}")
 
         result = (
             "## Skills (mandatory)\n"
