@@ -6526,7 +6526,11 @@ def _restore_stashed_changes(
         if input_fn is not None:
             response = input_fn("Restore local changes now? [Y/n]", "y")
         else:
-            response = input().strip().lower()
+            try:
+                response = input().strip().lower()
+            except UnicodeDecodeError:
+                raw = sys.stdin.buffer.readline()
+                response = raw.decode("utf-8", errors="replace").strip().lower()
         if response not in {"", "y", "yes"}:
             print("Skipped restoring local changes.")
             print("Your changes are still preserved in git stash.")
