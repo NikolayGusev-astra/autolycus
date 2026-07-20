@@ -681,6 +681,23 @@ def get_container_exec_info() -> Optional[dict]:
 from hermes_constants import get_hermes_home  # noqa: F811,E402
 from utils import atomic_replace
 
+def require_readable_config_before_write(config_path):
+    """Raise if config.yaml exists but cannot be parsed."""
+    if not config_path.exists():
+        return
+    try:
+        content = config_path.read_text(encoding="utf-8")
+        yaml = __import__("yaml")
+        yaml.safe_load(content)
+    except Exception as e:
+        msg = (
+            f"Config file {config_path} is not readable.\n"
+            f"Fix the YAML syntax before running this command.\n"
+            f"Error: {e}"
+        )
+        raise RuntimeError(msg) from e
+
+
 def get_config_path() -> Path:
     """Get the main config file path."""
     return get_hermes_home() / "config.yaml"
