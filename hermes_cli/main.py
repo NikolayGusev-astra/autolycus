@@ -6529,8 +6529,12 @@ def _restore_stashed_changes(
             try:
                 response = input().strip().lower()
             except UnicodeDecodeError:
+                # stdin may contain non-UTF-8 bytes. Read raw, replace
+                # undecodable bytes, and strip non-ASCII to recover 'y'/'n'.
                 raw = sys.stdin.buffer.readline()
-                response = raw.decode("utf-8", errors="replace").strip().lower()
+                cleaned = raw.decode("utf-8", errors="replace")
+                # Keep only ASCII letters for the y/n check
+                response = "".join(c for c in cleaned if c.isascii() and c.isalpha()).strip().lower()
         if response not in {"", "y", "yes"}:
             print("Skipped restoring local changes.")
             print("Your changes are still preserved in git stash.")
