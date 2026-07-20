@@ -512,6 +512,29 @@ def format_unsupported_install_warning(method: str) -> str:
     return "pip-based installs are deprecated. Reinstall via the official script: https://hermes-agent.nousresearch.com/docs/install"
 
 
+def get_custom_provider_tls_settings(base_url, config=None, custom_providers=None):
+    """Return TLS settings for a custom provider matching base_url."""
+    if custom_providers is None:
+        if config is None:
+            config = load_config()
+        custom_providers = config.get("custom_providers", [])
+    bu = (base_url or "").rstrip("/").lower()
+    for p in custom_providers:
+        pu = (p.get("base_url", "") or "").rstrip("/").lower()
+        if not pu:
+            continue
+        if bu == pu or bu.startswith(pu + "/"):
+            return {k: v for k, v in p.items() if k in ("ssl_ca_cert", "ssl_verify")}
+    return {}
+
+def apply_custom_provider_tls_to_client_kwargs(client_kwargs, base_url, config=None, custom_providers=None):
+    """Apply TLS settings to client_kwargs in-place."""
+    tls = get_custom_provider_tls_settings(base_url, config=config, custom_providers=custom_providers)
+    for key in ("ssl_ca_cert", "ssl_verify"):
+        if key in tls:
+            client_kwargs[key] = tls[key]
+
+
 def recommended_update_command_for_method(method: str) -> str:
     """Return the update command or guidance for a given install method."""
     if method == "nixos":
