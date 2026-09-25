@@ -213,6 +213,7 @@ def _db_flush_row(agent, msg: Dict, is_current_turn_user: bool) -> Dict[str, Any
         "tool_calls": msg["tool_calls"] if isinstance(msg.get("tool_calls"), list) else None,
         "tool_call_id": msg.get("tool_call_id"), "finish_reason": msg.get("finish_reason"),
         "effect_disposition": msg.get("effect_disposition"),
+        "execution_status": msg.get("execution_status"),
         **{k: msg.get(k) for k in _ROW_REASONING_KEYS},
         "_compressed_summary": bool(msg.get(COMPRESSED_SUMMARY_METADATA_KEY)),
         "timestamp": timestamp, "api_content": api_content,
